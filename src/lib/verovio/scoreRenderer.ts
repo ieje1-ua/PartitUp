@@ -1,4 +1,4 @@
-import type { Toolkit } from 'verovio'
+import type { VerovioToolkit } from 'verovio/esm'
 import { getVerovioToolkit } from './verovioInstance'
 
 export interface RenderResult {
@@ -7,7 +7,7 @@ export interface RenderResult {
   midi: string
 }
 
-let currentToolkit: Toolkit | null = null
+let currentToolkit: VerovioToolkit | null = null
 
 export async function loadScore(musicXml: string): Promise<RenderResult> {
   const tk = await getVerovioToolkit()
@@ -34,6 +34,6 @@ export async function getPageCount(): Promise<number> {
   return currentToolkit.getPageCount()
 }
 
-export function getToolkit(): Toolkit | null {
+export function getToolkit(): VerovioToolkit | null {
   return currentToolkit
 }
