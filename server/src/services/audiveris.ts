@@ -31,10 +31,28 @@ export async function processWithAudiveris(inputPath: string): Promise<string> {
       inputPath,
     ])
 
-    await execFileAsync(cmd, args, {
-      timeout: 300_000,
-      maxBuffer: 10 * 1024 * 1024,
-    })
+    try {
+      await execFileAsync(cmd, args, {
+        timeout: 300_000,
+        maxBuffer: 50 * 1024 * 1024,
+      })
+    } catch (execErr: unknown) {
+      const stderr = (execErr as { stderr?: string }).stderr ?? ''
+      const killed = (execErr as { killed?: boolean }).killed
+      if (killed) {
+        throw new Error('Audiveris tardó demasiado procesando el archivo. Intenta con un PDF más pequeño.')
+      }
+      // Audiveris may still produce output even if exit code is non-zero
+      const files = await fs.readdir(outputDir, { recursive: true })
+      const hasOutput = files.some(
+        (f) => typeof f === 'string' && (f.endsWith('.xml') || f.endsWith('.mxl') || f.endsWith('.musicxml'))
+      )
+      if (!hasOutput) {
+        const hint = stderr.includes('OutOfMemory') ? ' (sin memoria)' :
+                     stderr.includes('No sheet') ? ' (no se detectaron pentagramas)' : ''
+        throw new Error(`Audiveris no pudo procesar el archivo${hint}. Verifica que sea una partitura musical legible.`)
+      }
+    }
 
     const files = (await fs.readdir(outputDir, { recursive: true }))
       .filter((f): f is string => typeof f === 'string')

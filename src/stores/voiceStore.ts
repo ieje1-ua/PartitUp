@@ -1,5 +1,7 @@
 import { create } from 'zustand'
 import type { VoiceDefinition } from '../types/voice'
+import type { VoiceType } from '../types/voice'
+import { VOICE_COLORS } from '../utils/colorPalette'
 import { identifyVoices } from '../lib/musicxml/voiceIdentifier'
 
 interface VoiceState {
@@ -7,6 +9,7 @@ interface VoiceState {
   isIdentified: boolean
 
   identifyFromMusicXml: (xml: string) => void
+  changeVoiceType: (voiceId: string, newType: VoiceType) => void
   toggleMute: (voiceId: string) => void
   toggleSolo: (voiceId: string) => void
   setVolume: (voiceId: string, volume: number) => void
@@ -21,6 +24,16 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
   identifyFromMusicXml: (xml: string) => {
     const voices = identifyVoices(xml)
     set({ voices, isIdentified: true })
+  },
+
+  changeVoiceType: (voiceId: string, newType: VoiceType) => {
+    set({
+      voices: get().voices.map((v) =>
+        v.id === voiceId
+          ? { ...v, type: newType, color: VOICE_COLORS[newType] ?? '#95a5a6' }
+          : v
+      ),
+    })
   },
 
   toggleMute: (voiceId: string) => {
