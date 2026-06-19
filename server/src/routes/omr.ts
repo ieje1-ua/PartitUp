@@ -36,7 +36,10 @@ omrRouter.post('/omr', upload.single('file'), async (req, res) => {
     let inputPath: string
 
     if (ext === '.pdf') {
-      inputPath = filePath
+      // Multer saves without extension; Audiveris needs .pdf to detect format
+      processedPath = filePath + '.pdf'
+      await fs.rename(filePath, processedPath)
+      inputPath = processedPath
     } else {
       processedPath = await preprocessImage(filePath)
       inputPath = processedPath
