@@ -9,16 +9,17 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
-    "express": "^5.1.0",
-    "multer": "^2.0.1",
     "cors": "^2.8.5",
+    "express": "^5.1.0",
+    "fflate": "^0.8.3",
+    "multer": "^2.0.1",
     "sharp": "^0.34.0"
   },
   "devDependencies": {
+    "@types/cors": "^2.8.17",
     "@types/express": "^5.0.0",
     "@types/multer": "^1.4.12",
-    "@types/cors": "^2.8.17",
-    "typescript": "~6.0.2",
-    "tsx": "^4.19.0"
+    "tsx": "^4.19.0",
+    "typescript": "~6.0.2"
   }
 }

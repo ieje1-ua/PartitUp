@@ -12,6 +12,7 @@ dist
 dist-ssr
 *.local
 .env
+*.tsbuildinfo
 
 # SoundFonts: el .sf3 comprimido (~8MB) SI se versiona; el .sf2 completo (~30MB) no
 public/soundfonts/*.sf2
