@@ -70,14 +70,28 @@ function parseParts(xmlString: string): PartInfo[] {
 }
 
 // Cluster parts with similar pitch into consolidated voices.
-// Audiveris often generates one <part> per staff per system/page,
-// so a 4-voice SATB score across multiple pages yields ~12+ parts.
+// Audiveris can generate one <part> per staff per system, so a multi-page
+// SATB score may yield many parts. We only cluster when there are clearly
+// more parts than real voices (>8); with <=8 parts we trust Audiveris's
+// separation and keep each part as its own voice (so Alto and Tenor, which
+// are only ~5 semitones apart, are NOT wrongly merged).
 function clusterParts(parts: PartInfo[]): VoiceCluster[] {
   if (parts.length === 0) return []
 
   // Sort by pitch high to low
   const sorted = [...parts].sort((a, b) => b.avgPitch - a.avgPitch)
 
+  // Few parts: keep each as a distinct voice (no merging)
+  if (sorted.length <= 8) {
+    return sorted.map((p) => ({
+      parts: [p],
+      avgPitch: p.avgPitch,
+      totalNotes: p.noteCount,
+      bestName: p.partName,
+    }))
+  }
+
+  // Many parts: merge near-duplicates (within 3 semitones) into voices
   const clusters: VoiceCluster[] = []
   let current: VoiceCluster = {
     parts: [sorted[0]],
@@ -88,8 +102,8 @@ function clusterParts(parts: PartInfo[]): VoiceCluster[] {
 
   for (let i = 1; i < sorted.length; i++) {
     const part = sorted[i]
-    // Merge if within 5 semitones (a perfect fourth) of the cluster average
-    if (Math.abs(part.avgPitch - current.avgPitch) <= 5) {
+    // Merge if within 3 semitones of the cluster average
+    if (Math.abs(part.avgPitch - current.avgPitch) <= 3) {
       current.parts.push(part)
       const totalNotes = current.totalNotes + part.noteCount
       current.avgPitch = (current.avgPitch * current.totalNotes + part.avgPitch * part.noteCount) / totalNotes

@@ -1,4 +1,8 @@
 import { WorkerSynthesizer, Sequencer, audioBufferToWav } from 'spessasynth_lib'
+// Vite-managed URL for the worker bundle. Using a `?url` import (instead of
+// `new URL(...).href`) ensures Vite emits the asset and resolves it correctly
+// in the production build — otherwise the worker 404s and audio never loads.
+import processorWorkerUrl from 'spessasynth_lib/dist/spessasynth_processor.min.js?url'
 import { loadSoundFont } from './soundfontLoader'
 
 let audioContext: AudioContext | null = null
@@ -16,12 +20,7 @@ export async function initAudioEngine(): Promise<{ synth: WorkerSynthesizer; seq
 
   await WorkerSynthesizer.registerPlaybackWorklet(audioContext)
 
-  const workerUrl = new URL(
-    'spessasynth_lib/dist/spessasynth_processor.min.js',
-    import.meta.url
-  ).href
-
-  worker = new Worker(workerUrl, { type: 'module' })
+  worker = new Worker(processorWorkerUrl, { type: 'module' })
 
   synth = new WorkerSynthesizer(audioContext, worker.postMessage.bind(worker))
   worker.onmessage = (e) => synth!.handleWorkerMessage(e.data)
