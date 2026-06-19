@@ -25,11 +25,20 @@ RUN mkdir -p /etc/apt/keyrings \
     && rm -rf /var/lib/apt/lists/*
 
 # Audiveris (el .deb incluye su propio JRE; apt resuelve sus dependencias nativas).
+#
+# El postinst del .deb ejecuta `xdg-desktop-menu install` para crear un acceso
+# directo de escritorio, que falla en contenedores headless (sin entorno grafico).
+# Por eso instalamos de forma tolerante, eliminamos ese script de post-instalacion
+# (innecesario en un servidor) y completamos la configuracion con dpkg. Finalmente
+# verificamos que el binario de Audiveris quedo correctamente instalado.
 ARG AUDIVERIS_VERSION=5.10.2
 RUN apt-get update \
     && curl -fsSL -o /tmp/audiveris.deb \
        "https://github.com/Audiveris/audiveris/releases/download/${AUDIVERIS_VERSION}/Audiveris-${AUDIVERIS_VERSION}-ubuntu24.04-x86_64.deb" \
-    && apt-get install -y --no-install-recommends /tmp/audiveris.deb \
+    && (apt-get install -y --no-install-recommends /tmp/audiveris.deb || true) \
+    && rm -f /var/lib/dpkg/info/audiveris.postinst \
+    && dpkg --configure -a \
+    && test -x /opt/audiveris/bin/Audiveris \
     && rm /tmp/audiveris.deb \
     && rm -rf /var/lib/apt/lists/*
 
