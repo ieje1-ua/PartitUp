@@ -9,21 +9,22 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "clsx": "^2.1.0",
+    "lucide-react": "^0.511.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
+    "spessasynth_lib": "^4.3.7",
+    "tailwind-merge": "^3.0.0",
     "verovio": "^6.2.0",
-    "zustand": "^5.0.0",
-    "lucide-react": "^0.511.0",
-    "clsx": "^2.1.0",
-    "tailwind-merge": "^3.0.0"
+    "zustand": "^5.0.0"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.1.0",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
     "@vitejs/plugin-react": "^5.0.0",
-    "typescript": "~6.0.2",
-    "vite": "^8.0.12",
     "tailwindcss": "^4.1.0",
-    "@tailwindcss/vite": "^4.1.0"
+    "typescript": "~6.0.2",
+    "vite": "^8.0.12"
   }
 }
