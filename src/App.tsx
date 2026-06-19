@@ -6,12 +6,15 @@ import { VoicePanel } from './components/voices/VoicePanel'
 import { PlaybackControls } from './components/audio/PlaybackControls'
 import { useScoreStore } from './stores/scoreStore'
 import { useVoiceStore } from './stores/voiceStore'
+import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 
 export default function App() {
   const svgContent = useScoreStore((s) => s.svgContent)
   const musicXml = useScoreStore((s) => s.musicXml)
   const identifyFromMusicXml = useVoiceStore((s) => s.identifyFromMusicXml)
   const resetVoices = useVoiceStore((s) => s.reset)
+
+  useKeyboardShortcuts()
 
   useEffect(() => {
     if (musicXml) {

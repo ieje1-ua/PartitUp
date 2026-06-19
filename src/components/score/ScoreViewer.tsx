@@ -1,6 +1,8 @@
 import { useRef, useEffect, useState } from 'react'
 import { ChevronLeft, ChevronRight, ZoomIn, ZoomOut } from 'lucide-react'
 import { useScoreStore } from '../../stores/scoreStore'
+import { NoteInteraction } from './NoteInteraction'
+import { CorrectionToolbar } from './CorrectionToolbar'
 
 export function ScoreViewer() {
   const svgContent = useScoreStore((s) => s.svgContent)
@@ -8,12 +10,13 @@ export function ScoreViewer() {
   const pageCount = useScoreStore((s) => s.pageCount)
   const nextPage = useScoreStore((s) => s.nextPage)
   const prevPage = useScoreStore((s) => s.prevPage)
-  const containerRef = useRef<HTMLDivElement>(null)
+  const scoreContainerRef = useRef<HTMLDivElement>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
   const [zoom, setZoom] = useState(100)
 
   useEffect(() => {
-    if (containerRef.current && svgContent) {
-      containerRef.current.scrollTop = 0
+    if (scrollRef.current && svgContent) {
+      scrollRef.current.scrollTop = 0
     }
   }, [svgContent])
 
@@ -21,6 +24,8 @@ export function ScoreViewer() {
 
   return (
     <div className="flex-1 flex flex-col bg-gray-50 overflow-hidden">
+      <CorrectionToolbar />
+
       <div className="bg-white border-b border-gray-200 px-4 py-2 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-2">
           <button
@@ -31,7 +36,7 @@ export function ScoreViewer() {
             <ChevronLeft className="w-5 h-5" />
           </button>
           <span className="text-sm text-gray-600 min-w-[80px] text-center">
-            Página {currentPage} de {pageCount}
+            Pagina {currentPage} de {pageCount}
           </span>
           <button
             onClick={nextPage}
@@ -61,16 +66,16 @@ export function ScoreViewer() {
         </div>
       </div>
 
-      <div
-        ref={containerRef}
-        className="flex-1 overflow-auto p-6"
-      >
+      <div ref={scrollRef} className="flex-1 overflow-auto p-6">
         <div
+          ref={scoreContainerRef}
           className="score-container mx-auto bg-white shadow-sm rounded-lg p-4"
           style={{ transform: `scale(${zoom / 100})`, transformOrigin: 'top center' }}
           dangerouslySetInnerHTML={{ __html: svgContent }}
         />
       </div>
+
+      <NoteInteraction containerRef={scoreContainerRef} />
     </div>
   )
 }
