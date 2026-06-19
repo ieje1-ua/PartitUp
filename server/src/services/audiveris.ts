@@ -8,7 +8,6 @@ import { unzipSync, strFromU8 } from 'fflate'
 const execFileAsync = promisify(execFile)
 
 const AUDIVERIS_CMD = process.env.AUDIVERIS_CMD || 'audiveris'
-// En contenedores sin display, Audiveris necesita un framebuffer virtual.
 const USE_XVFB = process.env.USE_XVFB === '1'
 
 function buildCommand(args: string[]): { cmd: string; args: string[] } {
@@ -18,8 +17,10 @@ function buildCommand(args: string[]): { cmd: string; args: string[] } {
   return { cmd: AUDIVERIS_CMD, args }
 }
 
-export async function processWithAudiveris(inputPath: string): Promise<string> {
-  const outputDir = path.join(os.tmpdir(), `audiveris-output-${Date.now()}`)
+// Process a single image through Audiveris and return the MusicXML string.
+// Each call is a separate JVM invocation so memory is freed between pages.
+async function processOneFile(inputPath: string): Promise<string | null> {
+  const outputDir = path.join(os.tmpdir(), `audiveris-output-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`)
   await fs.mkdir(outputDir, { recursive: true })
 
   try {
@@ -32,46 +33,26 @@ export async function processWithAudiveris(inputPath: string): Promise<string> {
     ])
 
     try {
-      const { stdout, stderr } = await execFileAsync(cmd, args, {
-        timeout: 300_000,
+      await execFileAsync(cmd, args, {
+        timeout: 180_000,
         maxBuffer: 50 * 1024 * 1024,
       })
-      console.log('[audiveris] stdout tail:', stdout.slice(-2000))
-      if (stderr) console.log('[audiveris] stderr tail:', stderr.slice(-2000))
     } catch (execErr: unknown) {
+      const killed = (execErr as { killed?: boolean }).killed
       const stderr = (execErr as { stderr?: string }).stderr ?? ''
       const stdout = (execErr as { stdout?: string }).stdout ?? ''
-      const killed = (execErr as { killed?: boolean }).killed
-      const code = (execErr as { code?: number }).code
-      // Log full diagnostics to server console (visible in Railway logs)
-      console.error('[audiveris] FAILED code=%s killed=%s', code, killed)
-      console.error('[audiveris] stdout:', stdout.slice(-4000))
-      console.error('[audiveris] stderr:', stderr.slice(-4000))
+      console.error('[audiveris] page failed for', inputPath, 'killed=', killed)
+      console.error('[audiveris] stderr tail:', stderr.slice(-2000))
+      console.error('[audiveris] stdout tail:', stdout.slice(-2000))
 
-      if (killed) {
-        throw new Error('Audiveris tardó demasiado procesando el archivo (timeout 5 min). El PDF puede ser demasiado grande.')
-      }
+      if (killed) return null
 
-      // Audiveris may still produce output even if exit code is non-zero
+      // Check if partial output was produced
       const files = await fs.readdir(outputDir, { recursive: true })
       const hasOutput = files.some(
         (f) => typeof f === 'string' && (f.endsWith('.xml') || f.endsWith('.mxl') || f.endsWith('.musicxml'))
       )
-      if (!hasOutput) {
-        // Surface the most relevant line from Audiveris so we can diagnose
-        const combined = stderr + '\n' + stdout
-        let detail = ''
-        if (/OutOfMemory|heap space/i.test(combined)) {
-          detail = 'sin memoria (OutOfMemoryError)'
-        } else if (/No sheet|no staff|no staves/i.test(combined)) {
-          detail = 'no se detectaron pentagramas'
-        } else {
-          // Grab last non-empty line as a hint
-          const lines = combined.split('\n').map((l) => l.trim()).filter(Boolean)
-          detail = lines.slice(-1)[0]?.slice(0, 200) || `código de salida ${code}`
-        }
-        throw new Error(`Audiveris no pudo procesar el archivo: ${detail}`)
-      }
+      if (!hasOutput) return null
     }
 
     const files = (await fs.readdir(outputDir, { recursive: true }))
@@ -89,12 +70,76 @@ export async function processWithAudiveris(inputPath: string): Promise<string> {
       return await extractMxl(path.join(outputDir, largest))
     }
 
-    throw new Error(
-      'Audiveris no generó MusicXML. El archivo puede no contener notación musical reconocible.'
-    )
+    return null
   } finally {
     await fs.rm(outputDir, { recursive: true, force: true }).catch(() => {})
   }
+}
+
+// Extract PDF pages to individual PNG images using pdftoppm (poppler-utils).
+async function extractPdfPages(pdfPath: string): Promise<string[]> {
+  const outputDir = path.join(os.tmpdir(), `pdf-pages-${Date.now()}`)
+  await fs.mkdir(outputDir, { recursive: true })
+
+  await execFileAsync('pdftoppm', [
+    '-png', '-r', '300',
+    pdfPath,
+    path.join(outputDir, 'page'),
+  ], { timeout: 60_000 })
+
+  const files = await fs.readdir(outputDir)
+  return files
+    .filter((f) => f.endsWith('.png'))
+    .sort()
+    .map((f) => path.join(outputDir, f))
+}
+
+// Main entry point: accepts a single image or PDF.
+// For PDFs, extracts pages and processes each one separately to avoid OOM.
+export async function processWithAudiveris(inputPath: string, isPdf: boolean): Promise<string> {
+  if (!isPdf) {
+    const result = await processOneFile(inputPath)
+    if (result) return result
+    throw new Error('Audiveris no pudo procesar la imagen. Verifica que sea una partitura musical legible.')
+  }
+
+  // PDF: extract pages, process each one separately to stay within memory limits
+  let pageFiles: string[] = []
+  try {
+    pageFiles = await extractPdfPages(inputPath)
+  } catch {
+    throw new Error('No se pudieron extraer páginas del PDF.')
+  }
+
+  if (pageFiles.length === 0) {
+    throw new Error('El PDF no contiene páginas válidas.')
+  }
+
+  console.log('[audiveris] PDF has %d pages, processing each separately', pageFiles.length)
+
+  const results: string[] = []
+  for (let i = 0; i < pageFiles.length; i++) {
+    console.log('[audiveris] processing page %d/%d', i + 1, pageFiles.length)
+    const result = await processOneFile(pageFiles[i])
+    if (result) {
+      results.push(result)
+    }
+    // Clean up page image immediately to free disk space
+    await fs.unlink(pageFiles[i]).catch(() => {})
+  }
+
+  // Clean up the pages directory
+  if (pageFiles.length > 0) {
+    const pagesDir = path.dirname(pageFiles[0])
+    await fs.rm(pagesDir, { recursive: true, force: true }).catch(() => {})
+  }
+
+  if (results.length === 0) {
+    throw new Error('Audiveris no pudo procesar ninguna página del PDF. Puede ser un problema de memoria — intenta con un PDF de menos páginas.')
+  }
+
+  // Return the longest result (most musical content)
+  return results.reduce((best, r) => r.length > best.length ? r : best)
 }
 
 async function pickLargestFile(baseDir: string, relativePaths: string[]): Promise<string> {
@@ -111,12 +156,10 @@ async function pickLargestFile(baseDir: string, relativePaths: string[]): Promis
   return largest
 }
 
-// Un .mxl es un ZIP que contiene el .xml real (referenciado en META-INF/container.xml).
 async function extractMxl(mxlPath: string): Promise<string> {
   const buffer = await fs.readFile(mxlPath)
   const entries = unzipSync(new Uint8Array(buffer))
 
-  // Buscar el primer .xml que no esté en META-INF
   for (const [name, data] of Object.entries(entries)) {
     if (name.endsWith('.xml') && !name.startsWith('META-INF')) {
       return strFromU8(data)
