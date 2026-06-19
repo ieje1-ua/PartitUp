@@ -1,20 +1,11 @@
 import { WorkerSynthesizer, Sequencer, audioBufferToWav } from 'spessasynth_lib'
+import { loadSoundFont } from './soundfontLoader'
 
 let audioContext: AudioContext | null = null
 let synth: WorkerSynthesizer | null = null
 let sequencer: Sequencer | null = null
 let worker: Worker | null = null
 let initialized = false
-
-const SOUNDFONT_URL = '/soundfonts/GeneralUser_GS.sf2'
-
-async function fetchSoundFont(): Promise<ArrayBuffer> {
-  const response = await fetch(SOUNDFONT_URL)
-  if (!response.ok) {
-    throw new Error(`No se pudo cargar el SoundFont: ${response.statusText}`)
-  }
-  return response.arrayBuffer()
-}
 
 export async function initAudioEngine(): Promise<{ synth: WorkerSynthesizer; sequencer: Sequencer }> {
   if (initialized && synth && sequencer) {
@@ -37,7 +28,7 @@ export async function initAudioEngine(): Promise<{ synth: WorkerSynthesizer; seq
 
   synth.connect(audioContext.destination)
 
-  const soundFontBuffer = await fetchSoundFont()
+  const soundFontBuffer = await loadSoundFont()
   await synth.soundBankManager.addSoundBank(soundFontBuffer, 'default')
 
   sequencer = new Sequencer(synth, { skipToFirstNoteOn: true })

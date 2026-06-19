@@ -13,7 +13,7 @@ dist-ssr
 *.local
 .env
 
-# SoundFonts (too large for git)
+# SoundFonts: el .sf3 comprimido (~8MB) SI se versiona; el .sf2 completo (~30MB) no
 public/soundfonts/*.sf2
 
 # Server
