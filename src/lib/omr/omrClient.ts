@@ -15,11 +15,6 @@ export async function processImageOMR(file: File): Promise<OmrResult> {
     body: formData,
   })
 
-  if (!response.ok) {
-    const error = await response.text()
-    return { musicXml: '', status: 'error', message: error }
-  }
-
   const data = await response.json() as OmrResult
   return data
 }

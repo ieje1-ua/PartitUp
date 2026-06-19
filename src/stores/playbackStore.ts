@@ -47,8 +47,16 @@ export const usePlaybackStore = create<PlaybackState>((set) => ({
   initAndLoad: async (midiBase64: string) => {
     set({ isLoading: true, error: null })
     try {
-      await initAudioEngine()
-      await loadMidiData(midiBase64)
+      const timeout = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Tiempo de espera agotado cargando audio. Recarga la página e inténtalo de nuevo.')), 60_000)
+      )
+      await Promise.race([
+        (async () => {
+          await initAudioEngine()
+          await loadMidiData(midiBase64)
+        })(),
+        timeout,
+      ])
       set({
         isLoading: false,
         isReady: true,

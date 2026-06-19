@@ -34,9 +34,9 @@ omrRouter.post('/omr', upload.single('file'), async (req, res) => {
 
   try {
     let inputPath: string
+    const isPdf = ext === '.pdf'
 
-    if (ext === '.pdf') {
-      // Multer saves without extension; Audiveris needs .pdf to detect format
+    if (isPdf) {
       processedPath = filePath + '.pdf'
       await fs.rename(filePath, processedPath)
       inputPath = processedPath
@@ -45,7 +45,7 @@ omrRouter.post('/omr', upload.single('file'), async (req, res) => {
       inputPath = processedPath
     }
 
-    const musicXml = await processWithAudiveris(inputPath)
+    const musicXml = await processWithAudiveris(inputPath, isPdf)
 
     res.json({ status: 'success', musicXml })
   } catch (err) {

@@ -14,22 +14,25 @@ export async function initAudioEngine(): Promise<{ synth: WorkerSynthesizer; seq
 
   audioContext = new AudioContext()
 
+  // Register the inline playback worklet (sends audio from the worker to output).
   await WorkerSynthesizer.registerPlaybackWorklet(audioContext)
 
-  const workerUrl = new URL(
-    'spessasynth_lib/dist/spessasynth_processor.min.js',
-    import.meta.url
-  ).href
-
-  worker = new Worker(workerUrl, { type: 'module' })
+  // The worker runs the actual synthesis (WorkerSynthesizerCore). Inlining the
+  // `new URL(...)` inside `new Worker(...)` lets Vite bundle the worker for
+  // production correctly.
+  worker = new Worker(new URL('./synth.worker.ts', import.meta.url), { type: 'module' })
 
   synth = new WorkerSynthesizer(audioContext, worker.postMessage.bind(worker))
   worker.onmessage = (e) => synth!.handleWorkerMessage(e.data)
 
   synth.connect(audioContext.destination)
 
+  // Wait until the worker synthesizer has signalled it is ready before
+  // loading the SoundFont — otherwise addSoundBank() may never resolve.
+  await synth.isReady
+
   const soundFontBuffer = await loadSoundFont()
-  await synth.soundBankManager.addSoundBank(soundFontBuffer, 'default')
+  await synth.soundBankManager.addSoundBank(soundFontBuffer, 'main')
 
   sequencer = new Sequencer(synth, { skipToFirstNoteOn: true })
 

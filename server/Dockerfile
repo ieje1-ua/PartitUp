@@ -47,6 +47,11 @@ ENV AUDIVERIS_CMD=/opt/audiveris/bin/Audiveris
 ENV TESSDATA_PREFIX=/usr/share/tesseract-ocr/5/tessdata
 ENV USE_XVFB=1
 
+# Por defecto la JVM solo usa el 25% de la RAM del contenedor, insuficiente
+# para el OMR de partituras complejas (causa OutOfMemoryError intermitente).
+# MaxRAMPercentage se adapta al tamano real del contenedor en Railway.
+ENV JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=75.0"
+
 # Audiveris usa Tesseract en modo legacy; el paquete de Ubuntu solo trae datos
 # LSTM. Descargamos traineddata con soporte legacy (reconoce nombres de voz,
 # titulos y letra en las imagenes). El reconocimiento de notas funciona en
