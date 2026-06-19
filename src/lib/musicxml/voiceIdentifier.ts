@@ -8,6 +8,13 @@ interface PartInfo {
   noteCount: number
 }
 
+interface VoiceCluster {
+  parts: PartInfo[]
+  avgPitch: number
+  totalNotes: number
+  bestName: string
+}
+
 const PITCH_MAP: Record<string, number> = {
   C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11,
 }
@@ -16,11 +23,10 @@ function pitchToMidi(step: string, octave: number, alter = 0): number {
   return (octave + 1) * 12 + (PITCH_MAP[step] ?? 0) + alter
 }
 
-const NON_VOCAL_PATTERNS = /piano|organ|keyboard|guitar|strings|orchestra|acomp|accomp|klavier|cello|violin|viola|flute|oboe|clarinet|trumpet|trombone|horn|timpani|harp|bass(?:oon)?(?!\s)/i
+const NON_VOCAL_PATTERNS = /piano|organ|keyboard|guitar|strings|orchestra|acomp|accomp|klavier|cello|violin|viola|flute|oboe|clarinet|trumpet|trombone|horn|timpani|harp|bass(?:oon)/i
 
 function isVocalPart(name: string): boolean {
-  if (NON_VOCAL_PATTERNS.test(name)) return false
-  return true
+  return !NON_VOCAL_PATTERNS.test(name)
 }
 
 function parseParts(xmlString: string): PartInfo[] {
@@ -56,30 +62,68 @@ function parseParts(xmlString: string): PartInfo[] {
     })
 
     if (noteCount > 0) {
-      parts.push({
-        partId,
-        partName,
-        avgPitch: pitchSum / noteCount,
-        noteCount,
-      })
+      parts.push({ partId, partName, avgPitch: pitchSum / noteCount, noteCount })
     }
   })
 
   return parts
 }
 
-const VOICE_RANGES: Record<string, { center: number }> = {
-  soprano: { center: 72 },
-  alto:    { center: 65 },
-  tenor:   { center: 60 },
-  bass:    { center: 52 },
+// Cluster parts with similar pitch into consolidated voices.
+// Audiveris often generates one <part> per staff per system/page,
+// so a 4-voice SATB score across multiple pages yields ~12+ parts.
+function clusterParts(parts: PartInfo[]): VoiceCluster[] {
+  if (parts.length === 0) return []
+
+  // Sort by pitch high to low
+  const sorted = [...parts].sort((a, b) => b.avgPitch - a.avgPitch)
+
+  const clusters: VoiceCluster[] = []
+  let current: VoiceCluster = {
+    parts: [sorted[0]],
+    avgPitch: sorted[0].avgPitch,
+    totalNotes: sorted[0].noteCount,
+    bestName: sorted[0].partName,
+  }
+
+  for (let i = 1; i < sorted.length; i++) {
+    const part = sorted[i]
+    // Merge if within 5 semitones (a perfect fourth) of the cluster average
+    if (Math.abs(part.avgPitch - current.avgPitch) <= 5) {
+      current.parts.push(part)
+      const totalNotes = current.totalNotes + part.noteCount
+      current.avgPitch = (current.avgPitch * current.totalNotes + part.avgPitch * part.noteCount) / totalNotes
+      current.totalNotes = totalNotes
+      if (part.noteCount > (current.parts.find(p => p.partName === current.bestName)?.noteCount ?? 0)) {
+        current.bestName = part.partName
+      }
+    } else {
+      clusters.push(current)
+      current = {
+        parts: [part],
+        avgPitch: part.avgPitch,
+        totalNotes: part.noteCount,
+        bestName: part.partName,
+      }
+    }
+  }
+  clusters.push(current)
+
+  return clusters
+}
+
+const VOICE_RANGES: Record<string, number> = {
+  soprano: 72,
+  alto: 65,
+  tenor: 60,
+  bass: 52,
 }
 
 function classifyByRange(avgPitch: number): 'soprano' | 'alto' | 'tenor' | 'bass' {
   let best = 'soprano' as 'soprano' | 'alto' | 'tenor' | 'bass'
   let bestDist = Infinity
-  for (const [name, range] of Object.entries(VOICE_RANGES)) {
-    const d = Math.abs(avgPitch - range.center)
+  for (const [name, center] of Object.entries(VOICE_RANGES)) {
+    const d = Math.abs(avgPitch - center)
     if (d < bestDist) {
       bestDist = d
       best = name as typeof best
@@ -88,39 +132,26 @@ function classifyByRange(avgPitch: number): 'soprano' | 'alto' | 'tenor' | 'bass
   return best
 }
 
-const NAME_PATTERNS: Record<string, VoiceType> = {
-  'soprano 1': VoiceType.SOPRANO_1,
-  'soprano 2': VoiceType.SOPRANO_2,
-  'soprano i': VoiceType.SOPRANO_1,
-  'soprano ii': VoiceType.SOPRANO_2,
+const NAME_TO_VOICE: Record<string, VoiceType> = {
+  'soprano 1': VoiceType.SOPRANO_1, 'soprano 2': VoiceType.SOPRANO_2,
+  'soprano i': VoiceType.SOPRANO_1, 'soprano ii': VoiceType.SOPRANO_2,
   soprano: VoiceType.SOPRANO_1,
-  'contralto 1': VoiceType.CONTRALTO_1,
-  'contralto 2': VoiceType.CONTRALTO_2,
-  'alto 1': VoiceType.CONTRALTO_1,
-  'alto 2': VoiceType.CONTRALTO_2,
-  contralto: VoiceType.CONTRALTO_1,
-  alto: VoiceType.CONTRALTO_1,
-  'tenor 1': VoiceType.TENOR_1,
-  'tenor 2': VoiceType.TENOR_2,
-  'tenor i': VoiceType.TENOR_1,
-  'tenor ii': VoiceType.TENOR_2,
+  'contralto 1': VoiceType.CONTRALTO_1, 'contralto 2': VoiceType.CONTRALTO_2,
+  'alto 1': VoiceType.CONTRALTO_1, 'alto 2': VoiceType.CONTRALTO_2,
+  contralto: VoiceType.CONTRALTO_1, alto: VoiceType.CONTRALTO_1,
+  'tenor 1': VoiceType.TENOR_1, 'tenor 2': VoiceType.TENOR_2,
+  'tenor i': VoiceType.TENOR_1, 'tenor ii': VoiceType.TENOR_2,
   tenor: VoiceType.TENOR_1,
-  'bajo 1': VoiceType.BAJO_1,
-  'bajo 2': VoiceType.BAJO_2,
-  'bass 1': VoiceType.BAJO_1,
-  'bass 2': VoiceType.BAJO_2,
-  bajo: VoiceType.BAJO_1,
-  bass: VoiceType.BAJO_1,
-  basso: VoiceType.BAJO_1,
+  'bajo 1': VoiceType.BAJO_1, 'bajo 2': VoiceType.BAJO_2,
+  'bass 1': VoiceType.BAJO_1, 'bass 2': VoiceType.BAJO_2,
+  bajo: VoiceType.BAJO_1, bass: VoiceType.BAJO_1, basso: VoiceType.BAJO_1,
   baritone: VoiceType.BAJO_1,
 }
 
 function classifyByName(name: string): VoiceType | null {
   const lower = name.toLowerCase().trim()
-  for (const [pattern, type] of Object.entries(NAME_PATTERNS)) {
-    if (lower === pattern || lower.startsWith(pattern + ' ') || lower.includes(pattern)) {
-      return type
-    }
+  for (const [pattern, type] of Object.entries(NAME_TO_VOICE)) {
+    if (lower === pattern || lower.includes(pattern)) return type
   }
   if (/^s\d?$/i.test(lower)) return VoiceType.SOPRANO_1
   if (/^a\d?$/i.test(lower)) return VoiceType.CONTRALTO_1
@@ -136,6 +167,11 @@ function rangeToVoiceType(range: 'soprano' | 'alto' | 'tenor' | 'bass'): VoiceTy
     case 'tenor': return VoiceType.TENOR_1
     case 'bass': return VoiceType.BAJO_1
   }
+}
+
+// For exactly 4 clusters, assign SATB top-to-bottom
+function assignSATB(): VoiceType[] {
+  return [VoiceType.SOPRANO_1, VoiceType.CONTRALTO_1, VoiceType.TENOR_1, VoiceType.BAJO_1]
 }
 
 const MIDI_CHANNELS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15]
@@ -158,48 +194,49 @@ export function identifyVoices(musicXml: string): VoiceDefinition[] {
     }]
   }
 
-  // Filter out non-vocal parts (piano, orchestra, etc.)
   const vocalParts = allParts.filter((p) => isVocalPart(p.partName))
   const parts = vocalParts.length > 0 ? vocalParts : allParts
 
-  // Sort by pitch high to low
-  parts.sort((a, b) => b.avgPitch - a.avgPitch)
+  const clusters = clusterParts(parts)
 
-  // Classify each part: try name first, then fall back to pitch range
-  const voiceTypes: VoiceType[] = parts.map((part) => {
-    const byName = classifyByName(part.partName)
-    if (byName) return byName
-    return rangeToVoiceType(classifyByRange(part.avgPitch))
-  })
+  // Classify each cluster
+  let voiceTypes: VoiceType[]
 
-  // Deduplicate: if two parts have the same voice type, append 1/2
-  const typeCounts = new Map<VoiceType, number>()
-  for (const t of voiceTypes) {
-    typeCounts.set(t, (typeCounts.get(t) ?? 0) + 1)
+  if (clusters.length === 4) {
+    voiceTypes = assignSATB()
+  } else {
+    voiceTypes = clusters.map((cluster) => {
+      // Try name-based classification from any part in the cluster
+      for (const part of cluster.parts) {
+        const byName = classifyByName(part.partName)
+        if (byName) return byName
+      }
+      return rangeToVoiceType(classifyByRange(cluster.avgPitch))
+    })
+
+    // Deduplicate voice types
+    const seen = new Map<VoiceType, number>()
+    voiceTypes = voiceTypes.map((type) => {
+      const count = (seen.get(type) ?? 0) + 1
+      seen.set(type, count)
+      if (count === 1) return type
+      switch (type) {
+        case VoiceType.SOPRANO_1: return VoiceType.SOPRANO_2
+        case VoiceType.CONTRALTO_1: return VoiceType.CONTRALTO_2
+        case VoiceType.TENOR_1: return VoiceType.TENOR_2
+        case VoiceType.BAJO_1: return VoiceType.BAJO_2
+        default: return type
+      }
+    })
   }
 
-  const typeIndices = new Map<VoiceType, number>()
-  const finalTypes = voiceTypes.map((type) => {
-    if ((typeCounts.get(type) ?? 0) <= 1) return type
-    const idx = (typeIndices.get(type) ?? 0) + 1
-    typeIndices.set(type, idx)
-    // Promote to numbered variant (S1→S2, A1→A2, etc.)
-    if (idx === 1) return type
-    switch (type) {
-      case VoiceType.SOPRANO_1: return VoiceType.SOPRANO_2
-      case VoiceType.CONTRALTO_1: return VoiceType.CONTRALTO_2
-      case VoiceType.TENOR_1: return VoiceType.TENOR_2
-      case VoiceType.BAJO_1: return VoiceType.BAJO_2
-      default: return type
-    }
-  })
-
-  return parts.map((part, i) => {
-    const type = finalTypes[i] ?? VoiceType.UNASSIGNED
+  return clusters.map((cluster, i) => {
+    const type = voiceTypes[i] ?? VoiceType.UNASSIGNED
+    const label = cluster.bestName || `Voz ${i + 1}`
     return {
       id: `voice-${i}`,
       type,
-      label: part.partName,
+      label,
       color: VOICE_COLORS[type] ?? '#95a5a6',
       midiChannel: MIDI_CHANNELS[i % MIDI_CHANNELS.length],
       midiProgram: 52,
@@ -211,4 +248,4 @@ export function identifyVoices(musicXml: string): VoiceDefinition[] {
   })
 }
 
-export { parseParts, type PartInfo }
+export { parseParts, clusterParts, type PartInfo, type VoiceCluster }
