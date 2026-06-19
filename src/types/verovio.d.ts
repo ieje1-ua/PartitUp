@@ -1,5 +1,14 @@
-declare module 'verovio' {
-  interface ToolkitOptions {
+// La forma soportada de usar Verovio en el navegador es combinar el modulo WASM
+// (verovio/wasm) con la clase VerovioToolkit (verovio/esm).
+
+declare module 'verovio/wasm' {
+  // createVerovioModule() devuelve una promesa con el modulo Emscripten ya inicializado.
+  const createVerovioModule: () => Promise<unknown>
+  export default createVerovioModule
+}
+
+declare module 'verovio/esm' {
+  export interface ToolkitOptions {
     scale?: number
     pageWidth?: number
     pageHeight?: number
@@ -9,7 +18,8 @@ declare module 'verovio' {
     [key: string]: unknown
   }
 
-  interface Toolkit {
+  export class VerovioToolkit {
+    constructor(module: unknown)
     setOptions(options: ToolkitOptions): void
     loadData(data: string): boolean
     renderToSVG(page?: number): string
@@ -18,14 +28,7 @@ declare module 'verovio' {
     getElementsAtTime(time: number): { notes: string[]; page: number }
     getTimeForElement(elementId: string): number
     getMEI(): string
-    getOptions(): ToolkitOptions
   }
 
-  interface VerovioModule {
-    toolkit: new () => Toolkit
-  }
-
-  const module: Promise<VerovioModule>
-  export default { module }
-  export type { Toolkit, VerovioModule, ToolkitOptions }
+  export function enableLog(level: number): void
 }

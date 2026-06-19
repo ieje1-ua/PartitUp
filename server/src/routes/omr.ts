@@ -2,7 +2,6 @@ import { Router } from 'express'
 import multer from 'multer'
 import { processWithAudiveris } from '../services/audiveris.js'
 import { preprocessImage } from '../services/imagePreprocess.js'
-import { extractPdfPages } from '../services/pdfProcessor.js'
 import path from 'path'
 import fs from 'fs/promises'
 import os from 'os'
@@ -31,28 +30,26 @@ omrRouter.post('/omr', upload.single('file'), async (req, res) => {
 
   const filePath = req.file.path
   const ext = path.extname(req.file.originalname).toLowerCase()
+  let processedPath: string | null = null
 
   try {
-    let imagePaths: string[]
+    let inputPath: string
 
     if (ext === '.pdf') {
-      imagePaths = await extractPdfPages(filePath)
+      inputPath = filePath
     } else {
-      const processed = await preprocessImage(filePath)
-      imagePaths = [processed]
+      processedPath = await preprocessImage(filePath)
+      inputPath = processedPath
     }
 
-    const musicXml = await processWithAudiveris(imagePaths)
-
-    for (const p of imagePaths) {
-      await fs.unlink(p).catch(() => {})
-    }
-    await fs.unlink(filePath).catch(() => {})
+    const musicXml = await processWithAudiveris(inputPath)
 
     res.json({ status: 'success', musicXml })
   } catch (err) {
-    await fs.unlink(filePath).catch(() => {})
-    const message = err instanceof Error ? err.message : 'Error procesando la imagen'
+    const message = err instanceof Error ? err.message : 'Error procesando el archivo'
     res.status(500).json({ status: 'error', message })
+  } finally {
+    await fs.unlink(filePath).catch(() => {})
+    if (processedPath) await fs.unlink(processedPath).catch(() => {})
   }
 })

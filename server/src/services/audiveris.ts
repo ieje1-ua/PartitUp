@@ -18,48 +18,59 @@ function buildCommand(args: string[]): { cmd: string; args: string[] } {
   return { cmd: AUDIVERIS_CMD, args }
 }
 
-export async function processWithAudiveris(imagePaths: string[]): Promise<string> {
+export async function processWithAudiveris(inputPath: string): Promise<string> {
   const outputDir = path.join(os.tmpdir(), `audiveris-output-${Date.now()}`)
   await fs.mkdir(outputDir, { recursive: true })
 
   try {
-    for (const imagePath of imagePaths) {
-      const { cmd, args } = buildCommand([
-        // Exportar MusicXML sin comprimir (.xml en vez de .mxl)
-        '-constant', 'org.audiveris.omr.sheet.BookManager.useCompression=false',
-        '-batch',
-        '-export',
-        '-output', outputDir,
-        imagePath,
-      ])
+    const { cmd, args } = buildCommand([
+      '-constant', 'org.audiveris.omr.sheet.BookManager.useCompression=false',
+      '-batch',
+      '-export',
+      '-output', outputDir,
+      inputPath,
+    ])
 
-      await execFileAsync(cmd, args, {
-        timeout: 180_000,
-        maxBuffer: 10 * 1024 * 1024,
-      })
+    await execFileAsync(cmd, args, {
+      timeout: 300_000,
+      maxBuffer: 10 * 1024 * 1024,
+    })
+
+    const files = (await fs.readdir(outputDir, { recursive: true }))
+      .filter((f): f is string => typeof f === 'string')
+
+    const xmlFiles = files.filter((f) => f.endsWith('.xml') || f.endsWith('.musicxml'))
+    if (xmlFiles.length > 0) {
+      const largest = await pickLargestFile(outputDir, xmlFiles)
+      return await fs.readFile(path.join(outputDir, largest), 'utf-8')
     }
 
-    const files = await fs.readdir(outputDir, { recursive: true })
-
-    // Preferir el .xml sin comprimir; si no, caer al .mxl comprimido.
-    const xmlFile = files.find(
-      (f) => typeof f === 'string' && (f.endsWith('.xml') || f.endsWith('.musicxml'))
-    )
-    if (xmlFile) {
-      return await fs.readFile(path.join(outputDir, xmlFile as string), 'utf-8')
-    }
-
-    const mxlFile = files.find((f) => typeof f === 'string' && f.endsWith('.mxl'))
-    if (mxlFile) {
-      return await extractMxl(path.join(outputDir, mxlFile as string))
+    const mxlFiles = files.filter((f) => f.endsWith('.mxl'))
+    if (mxlFiles.length > 0) {
+      const largest = await pickLargestFile(outputDir, mxlFiles)
+      return await extractMxl(path.join(outputDir, largest))
     }
 
     throw new Error(
-      'Audiveris no generó MusicXML. La imagen puede no contener notación musical reconocible.'
+      'Audiveris no generó MusicXML. El archivo puede no contener notación musical reconocible.'
     )
   } finally {
     await fs.rm(outputDir, { recursive: true, force: true }).catch(() => {})
   }
+}
+
+async function pickLargestFile(baseDir: string, relativePaths: string[]): Promise<string> {
+  if (relativePaths.length === 1) return relativePaths[0]
+  let largest = relativePaths[0]
+  let maxSize = 0
+  for (const rel of relativePaths) {
+    const stat = await fs.stat(path.join(baseDir, rel))
+    if (stat.size > maxSize) {
+      maxSize = stat.size
+      largest = rel
+    }
+  }
+  return largest
 }
 
 // Un .mxl es un ZIP que contiene el .xml real (referenciado en META-INF/container.xml).
