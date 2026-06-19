@@ -1,0 +1,39 @@
+@import "tailwindcss";
+
+:root {
+  --voice-soprano1: #e74c3c;
+  --voice-soprano2: #e67e22;
+  --voice-contralto1: #f1c40f;
+  --voice-contralto2: #2ecc71;
+  --voice-tenor1: #3498db;
+  --voice-tenor2: #9b59b6;
+  --voice-bajo1: #1abc9c;
+  --voice-bajo2: #34495e;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background-color: #f8f9fa;
+  color: #1a1a2e;
+}
+
+#root {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.score-container svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.score-container .note.selected {
+  stroke: #007bff;
+  stroke-width: 3px;
+}
+
+.score-container .note.highlighted {
+  opacity: 0.9;
+}
