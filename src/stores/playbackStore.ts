@@ -10,7 +10,9 @@ import {
   getDuration,
   isPaused,
   renderToWav,
+  applyVoiceSettings,
 } from '../lib/audio/synthesizer'
+import { useVoiceStore } from './voiceStore'
 
 interface PlaybackState {
   isPlaying: boolean
@@ -57,6 +59,9 @@ export const usePlaybackStore = create<PlaybackState>((set) => ({
         })(),
         timeout,
       ])
+
+      applyVoiceSettings(useVoiceStore.getState().voices)
+
       set({
         isLoading: false,
         isReady: true,

@@ -23,6 +23,7 @@ export interface VoiceDefinition {
   muted: boolean
   solo: boolean
   volume: number
+  partIds: string[]
 }
 
 export interface VoiceAssignment {

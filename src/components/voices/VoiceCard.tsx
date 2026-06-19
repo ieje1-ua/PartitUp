@@ -26,9 +26,16 @@ export function VoiceCard({ voice }: VoiceCardProps) {
 
   return (
     <div
-      className={`rounded-lg p-3 transition-all ${
-        voice.muted ? 'opacity-50 bg-gray-50' : 'bg-gray-50 hover:bg-gray-100'
+      className={`rounded-lg p-3 transition-all border-l-4 ${
+        voice.solo
+          ? 'bg-blue-50'
+          : voice.muted
+            ? 'opacity-50 bg-gray-50'
+            : 'bg-gray-50 hover:bg-gray-100'
       }`}
+      style={{
+        borderLeftColor: voice.solo ? '#3b82f6' : voice.muted ? '#d1d5db' : voice.color,
+      }}
     >
       <div className="flex items-center gap-2 mb-1.5">
         <div
@@ -41,29 +48,29 @@ export function VoiceCard({ voice }: VoiceCardProps) {
 
         <button
           onClick={() => toggleSolo(voice.id)}
-          className={`p-1 rounded transition-colors ${
+          className={`p-1.5 rounded transition-colors ${
             voice.solo
-              ? 'bg-blue-100 text-blue-600'
-              : 'text-gray-400 hover:text-gray-600'
+              ? 'bg-blue-500 text-white'
+              : 'text-gray-400 hover:text-blue-500 hover:bg-blue-50'
           }`}
-          title={voice.solo ? 'Desactivar solo' : 'Solo esta voz'}
+          title={voice.solo ? 'Desactivar solo' : 'Escuchar solo esta voz'}
         >
-          <Headphones className="w-3.5 h-3.5" />
+          <Headphones className="w-4 h-4" />
         </button>
 
         <button
           onClick={() => toggleMute(voice.id)}
-          className={`p-1 rounded transition-colors ${
+          className={`p-1.5 rounded transition-colors ${
             voice.muted
               ? 'bg-red-100 text-red-600'
-              : 'text-gray-400 hover:text-gray-600'
+              : 'text-gray-400 hover:text-red-500 hover:bg-red-50'
           }`}
           title={voice.muted ? 'Activar voz' : 'Silenciar voz'}
         >
           {voice.muted ? (
-            <VolumeX className="w-3.5 h-3.5" />
+            <VolumeX className="w-4 h-4" />
           ) : (
-            <Volume2 className="w-3.5 h-3.5" />
+            <Volume2 className="w-4 h-4" />
           )}
         </button>
       </div>
@@ -86,7 +93,7 @@ export function VoiceCard({ voice }: VoiceCardProps) {
         max="100"
         value={Math.round(voice.volume * 100)}
         onChange={(e) => setVolume(voice.id, parseInt(e.target.value, 10) / 100)}
-        className="w-full h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+        className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer"
         style={{ accentColor: voice.color }}
       />
     </div>

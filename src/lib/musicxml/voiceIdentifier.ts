@@ -1,18 +1,24 @@
 import { VoiceType, type VoiceDefinition } from '../../types/voice'
 import { VOICE_COLORS } from '../../utils/colorPalette'
 
-interface PartInfo {
+interface NoteInfo {
   partId: string
-  partName: string
-  avgPitch: number
-  noteCount: number
+  staff: number
+  voice: number
+  pitch: number
+  step: string
+  octave: number
 }
 
-interface VoiceCluster {
-  parts: PartInfo[]
+interface VoiceStream {
+  partId: string
+  partName: string
+  staff: number
+  voice: number
+  notes: NoteInfo[]
+  minPitch: number
+  maxPitch: number
   avgPitch: number
-  totalNotes: number
-  bestName: string
 }
 
 const PITCH_MAP: Record<string, number> = {
@@ -23,177 +29,171 @@ function pitchToMidi(step: string, octave: number, alter = 0): number {
   return (octave + 1) * 12 + (PITCH_MAP[step] ?? 0) + alter
 }
 
-const NON_VOCAL_PATTERNS = /piano|organ|keyboard|guitar|strings|orchestra|acomp|accomp|klavier|cello|violin|viola|flute|oboe|clarinet|trumpet|trombone|horn|timpani|harp|bass(?:oon)/i
+const NON_VOCAL_PATTERNS = /piano|organ|keyboard|guitar|strings|orchestra|acomp|accomp|klavier|cello|violin|viola|flute|oboe|clarinet|trumpet|trombone|horn|timpani|harp|bass(?:oon)|continuo|basso\s*cont/i
 
 function isVocalPart(name: string): boolean {
   return !NON_VOCAL_PATTERNS.test(name)
 }
 
-function parseParts(xmlString: string): PartInfo[] {
+function parseMusicXmlVoices(xmlString: string): VoiceStream[] {
   const parser = new DOMParser()
   const doc = parser.parseFromString(xmlString, 'text/xml')
 
   const partNames = new Map<string, string>()
   doc.querySelectorAll('score-part').forEach((sp) => {
     const id = sp.getAttribute('id') ?? ''
-    const name = sp.querySelector('part-name')?.textContent?.trim() ?? id
+    const name = sp.querySelector('part-name')?.textContent ?? id
     partNames.set(id, name)
   })
 
-  const parts: PartInfo[] = []
+  const streamsMap = new Map<string, VoiceStream>()
 
   doc.querySelectorAll('part').forEach((part) => {
     const partId = part.getAttribute('id') ?? ''
     const partName = partNames.get(partId) ?? partId
 
-    let pitchSum = 0
-    let noteCount = 0
-
     part.querySelectorAll('note').forEach((note) => {
       if (note.querySelector('rest')) return
+
       const pitch = note.querySelector('pitch')
       if (!pitch) return
 
       const step = pitch.querySelector('step')?.textContent ?? 'C'
       const octave = parseInt(pitch.querySelector('octave')?.textContent ?? '4', 10)
       const alter = parseInt(pitch.querySelector('alter')?.textContent ?? '0', 10)
-      pitchSum += pitchToMidi(step, octave, alter)
-      noteCount++
-    })
+      const staffEl = note.querySelector('staff')
+      const voiceEl = note.querySelector('voice')
 
-    if (noteCount > 0) {
-      parts.push({ partId, partName, avgPitch: pitchSum / noteCount, noteCount })
-    }
+      const staff = staffEl ? parseInt(staffEl.textContent ?? '1', 10) : 1
+      const voice = voiceEl ? parseInt(voiceEl.textContent ?? '1', 10) : 1
+      const midiPitch = pitchToMidi(step, octave, alter)
+
+      const key = `${partId}-${staff}-${voice}`
+      if (!streamsMap.has(key)) {
+        streamsMap.set(key, {
+          partId,
+          partName,
+          staff,
+          voice,
+          notes: [],
+          minPitch: midiPitch,
+          maxPitch: midiPitch,
+          avgPitch: 0,
+        })
+      }
+
+      const stream = streamsMap.get(key)!
+      stream.notes.push({ partId, staff, voice, pitch: midiPitch, step, octave })
+      stream.minPitch = Math.min(stream.minPitch, midiPitch)
+      stream.maxPitch = Math.max(stream.maxPitch, midiPitch)
+    })
   })
 
-  return parts
-}
-
-// Cluster parts with similar pitch into consolidated voices.
-// Audiveris can generate one <part> per staff per system, so a multi-page
-// SATB score may yield many parts. We only cluster when there are clearly
-// more parts than real voices (>8); with <=8 parts we trust Audiveris's
-// separation and keep each part as its own voice (so Alto and Tenor, which
-// are only ~5 semitones apart, are NOT wrongly merged).
-function clusterParts(parts: PartInfo[]): VoiceCluster[] {
-  if (parts.length === 0) return []
-
-  // Sort by pitch high to low
-  const sorted = [...parts].sort((a, b) => b.avgPitch - a.avgPitch)
-
-  // Few parts: keep each as a distinct voice (no merging)
-  if (sorted.length <= 8) {
-    return sorted.map((p) => ({
-      parts: [p],
-      avgPitch: p.avgPitch,
-      totalNotes: p.noteCount,
-      bestName: p.partName,
-    }))
-  }
-
-  // Many parts: merge near-duplicates (within 3 semitones) into voices
-  const clusters: VoiceCluster[] = []
-  let current: VoiceCluster = {
-    parts: [sorted[0]],
-    avgPitch: sorted[0].avgPitch,
-    totalNotes: sorted[0].noteCount,
-    bestName: sorted[0].partName,
-  }
-
-  for (let i = 1; i < sorted.length; i++) {
-    const part = sorted[i]
-    // Merge if within 3 semitones of the cluster average
-    if (Math.abs(part.avgPitch - current.avgPitch) <= 3) {
-      current.parts.push(part)
-      const totalNotes = current.totalNotes + part.noteCount
-      current.avgPitch = (current.avgPitch * current.totalNotes + part.avgPitch * part.noteCount) / totalNotes
-      current.totalNotes = totalNotes
-      if (part.noteCount > (current.parts.find(p => p.partName === current.bestName)?.noteCount ?? 0)) {
-        current.bestName = part.partName
-      }
-    } else {
-      clusters.push(current)
-      current = {
-        parts: [part],
-        avgPitch: part.avgPitch,
-        totalNotes: part.noteCount,
-        bestName: part.partName,
-      }
+  for (const stream of streamsMap.values()) {
+    if (stream.notes.length > 0) {
+      stream.avgPitch = stream.notes.reduce((s, n) => s + n.pitch, 0) / stream.notes.length
     }
   }
-  clusters.push(current)
 
-  return clusters
+  return Array.from(streamsMap.values())
+    .filter((s) => s.notes.length > 0)
+    .sort((a, b) => b.avgPitch - a.avgPitch)
 }
 
-const VOICE_RANGES: Record<string, number> = {
-  soprano: 72,
-  alto: 65,
-  tenor: 60,
-  bass: 52,
+const VOICE_TYPE_ORDER: VoiceType[] = [
+  VoiceType.SOPRANO_1,
+  VoiceType.SOPRANO_2,
+  VoiceType.CONTRALTO_1,
+  VoiceType.CONTRALTO_2,
+  VoiceType.TENOR_1,
+  VoiceType.TENOR_2,
+  VoiceType.BAJO_1,
+  VoiceType.BAJO_2,
+]
+
+const VOICE_RANGES: Record<string, { min: number; max: number; center: number }> = {
+  soprano: { min: 60, max: 84, center: 72 },
+  alto:    { min: 53, max: 77, center: 65 },
+  tenor:   { min: 48, max: 72, center: 60 },
+  bass:    { min: 40, max: 64, center: 52 },
 }
 
 function classifyByRange(avgPitch: number): 'soprano' | 'alto' | 'tenor' | 'bass' {
-  let best = 'soprano' as 'soprano' | 'alto' | 'tenor' | 'bass'
-  let bestDist = Infinity
-  for (const [name, center] of Object.entries(VOICE_RANGES)) {
-    const d = Math.abs(avgPitch - center)
-    if (d < bestDist) {
-      bestDist = d
-      best = name as typeof best
+  let bestMatch = 'soprano' as 'soprano' | 'alto' | 'tenor' | 'bass'
+  let bestDistance = Infinity
+
+  for (const [name, range] of Object.entries(VOICE_RANGES)) {
+    const distance = Math.abs(avgPitch - range.center)
+    if (distance < bestDistance) {
+      bestDistance = distance
+      bestMatch = name as 'soprano' | 'alto' | 'tenor' | 'bass'
     }
   }
-  return best
+  return bestMatch
 }
 
-const NAME_TO_VOICE: Record<string, VoiceType> = {
-  'soprano 1': VoiceType.SOPRANO_1, 'soprano 2': VoiceType.SOPRANO_2,
-  'soprano i': VoiceType.SOPRANO_1, 'soprano ii': VoiceType.SOPRANO_2,
-  soprano: VoiceType.SOPRANO_1,
-  'contralto 1': VoiceType.CONTRALTO_1, 'contralto 2': VoiceType.CONTRALTO_2,
-  'alto 1': VoiceType.CONTRALTO_1, 'alto 2': VoiceType.CONTRALTO_2,
-  contralto: VoiceType.CONTRALTO_1, alto: VoiceType.CONTRALTO_1,
-  'tenor 1': VoiceType.TENOR_1, 'tenor 2': VoiceType.TENOR_2,
-  'tenor i': VoiceType.TENOR_1, 'tenor ii': VoiceType.TENOR_2,
-  tenor: VoiceType.TENOR_1,
-  'bajo 1': VoiceType.BAJO_1, 'bajo 2': VoiceType.BAJO_2,
-  'bass 1': VoiceType.BAJO_1, 'bass 2': VoiceType.BAJO_2,
-  bajo: VoiceType.BAJO_1, bass: VoiceType.BAJO_1, basso: VoiceType.BAJO_1,
-  baritone: VoiceType.BAJO_1,
-}
+function assignVoiceTypes(streams: VoiceStream[]): VoiceType[] {
+  const count = streams.length
 
-function classifyByName(name: string): VoiceType | null {
-  const lower = name.toLowerCase().trim()
-  for (const [pattern, type] of Object.entries(NAME_TO_VOICE)) {
-    if (lower === pattern || lower.includes(pattern)) return type
+  if (count === 0) return []
+
+  if (count === 8) {
+    return [...VOICE_TYPE_ORDER]
   }
-  if (/^s\d?$/i.test(lower)) return VoiceType.SOPRANO_1
-  if (/^a\d?$/i.test(lower)) return VoiceType.CONTRALTO_1
-  if (/^t\d?$/i.test(lower)) return VoiceType.TENOR_1
-  if (/^b\d?$/i.test(lower)) return VoiceType.BAJO_1
-  return null
-}
 
-function rangeToVoiceType(range: 'soprano' | 'alto' | 'tenor' | 'bass'): VoiceType {
-  switch (range) {
-    case 'soprano': return VoiceType.SOPRANO_1
-    case 'alto': return VoiceType.CONTRALTO_1
-    case 'tenor': return VoiceType.TENOR_1
-    case 'bass': return VoiceType.BAJO_1
+  if (count === 4) {
+    return [VoiceType.SOPRANO_1, VoiceType.CONTRALTO_1, VoiceType.TENOR_1, VoiceType.BAJO_1]
   }
-}
 
-// For exactly 4 clusters, assign SATB top-to-bottom
-function assignSATB(): VoiceType[] {
-  return [VoiceType.SOPRANO_1, VoiceType.CONTRALTO_1, VoiceType.TENOR_1, VoiceType.BAJO_1]
+  if (count === 2) {
+    const high = classifyByRange(streams[0].avgPitch)
+    const low = classifyByRange(streams[1].avgPitch)
+
+    if (high === 'soprano' || high === 'alto') {
+      return [VoiceType.SOPRANO_1, VoiceType.CONTRALTO_1]
+    }
+    if (low === 'bass' || low === 'tenor') {
+      return [VoiceType.TENOR_1, VoiceType.BAJO_1]
+    }
+    return [VoiceType.SOPRANO_1, VoiceType.BAJO_1]
+  }
+
+  if (count === 3) {
+    const allMale = streams.every((s) => s.avgPitch < 65)
+    if (allMale) {
+      return [VoiceType.TENOR_1, VoiceType.TENOR_2, VoiceType.BAJO_2]
+    }
+    return [VoiceType.SOPRANO_1, VoiceType.CONTRALTO_1, VoiceType.BAJO_1]
+  }
+
+  if (count === 6) {
+    return [
+      VoiceType.SOPRANO_1, VoiceType.SOPRANO_2,
+      VoiceType.CONTRALTO_1, VoiceType.CONTRALTO_2,
+      VoiceType.TENOR_1, VoiceType.BAJO_1,
+    ]
+  }
+
+  return streams.map((stream) => {
+    const rangeClass = classifyByRange(stream.avgPitch)
+    switch (rangeClass) {
+      case 'soprano': return VoiceType.SOPRANO_1
+      case 'alto': return VoiceType.CONTRALTO_1
+      case 'tenor': return VoiceType.TENOR_1
+      case 'bass': return VoiceType.BAJO_1
+    }
+  })
 }
 
 const MIDI_CHANNELS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15]
 
 export function identifyVoices(musicXml: string): VoiceDefinition[] {
-  const allParts = parseParts(musicXml)
+  const allStreams = parseMusicXmlVoices(musicXml)
 
-  if (allParts.length === 0) {
+  const vocalStreams = allStreams.filter((s) => isVocalPart(s.partName))
+  const streams = vocalStreams.length > 0 ? vocalStreams : allStreams
+
+  if (streams.length === 0) {
     return [{
       id: 'voice-0',
       type: VoiceType.UNASSIGNED,
@@ -205,52 +205,20 @@ export function identifyVoices(musicXml: string): VoiceDefinition[] {
       muted: false,
       solo: false,
       volume: 0.8,
+      partIds: [],
     }]
   }
 
-  const vocalParts = allParts.filter((p) => isVocalPart(p.partName))
-  const parts = vocalParts.length > 0 ? vocalParts : allParts
+  const voiceTypes = assignVoiceTypes(streams)
 
-  const clusters = clusterParts(parts)
-
-  // Classify each cluster
-  let voiceTypes: VoiceType[]
-
-  if (clusters.length === 4) {
-    voiceTypes = assignSATB()
-  } else {
-    voiceTypes = clusters.map((cluster) => {
-      // Try name-based classification from any part in the cluster
-      for (const part of cluster.parts) {
-        const byName = classifyByName(part.partName)
-        if (byName) return byName
-      }
-      return rangeToVoiceType(classifyByRange(cluster.avgPitch))
-    })
-
-    // Deduplicate voice types
-    const seen = new Map<VoiceType, number>()
-    voiceTypes = voiceTypes.map((type) => {
-      const count = (seen.get(type) ?? 0) + 1
-      seen.set(type, count)
-      if (count === 1) return type
-      switch (type) {
-        case VoiceType.SOPRANO_1: return VoiceType.SOPRANO_2
-        case VoiceType.CONTRALTO_1: return VoiceType.CONTRALTO_2
-        case VoiceType.TENOR_1: return VoiceType.TENOR_2
-        case VoiceType.BAJO_1: return VoiceType.BAJO_2
-        default: return type
-      }
-    })
-  }
-
-  return clusters.map((cluster, i) => {
+  return streams.map((stream, i) => {
     const type = voiceTypes[i] ?? VoiceType.UNASSIGNED
-    const label = cluster.bestName || `Voz ${i + 1}`
+    const partLabel = stream.partName !== stream.partId ? stream.partName : ''
+
     return {
       id: `voice-${i}`,
       type,
-      label,
+      label: partLabel || (VOICE_COLORS[type] ? type : `Voz ${i + 1}`),
       color: VOICE_COLORS[type] ?? '#95a5a6',
       midiChannel: MIDI_CHANNELS[i % MIDI_CHANNELS.length],
       midiProgram: 52,
@@ -258,8 +226,74 @@ export function identifyVoices(musicXml: string): VoiceDefinition[] {
       muted: false,
       solo: false,
       volume: 0.8,
+      partIds: [stream.partId],
     }
   })
 }
 
-export { parseParts, clusterParts, type PartInfo, type VoiceCluster }
+export function stripNonVocalParts(musicXml: string): string {
+  const parser = new DOMParser()
+  const doc = parser.parseFromString(musicXml, 'text/xml')
+
+  const nonVocalIds: string[] = []
+  let totalParts = 0
+
+  doc.querySelectorAll('score-part').forEach((sp) => {
+    totalParts++
+    const id = sp.getAttribute('id') ?? ''
+    const name = sp.querySelector('part-name')?.textContent?.trim() ?? ''
+    if (NON_VOCAL_PATTERNS.test(name)) {
+      nonVocalIds.push(id)
+    }
+  })
+
+  if (nonVocalIds.length === 0 || nonVocalIds.length === totalParts) {
+    return musicXml
+  }
+
+  for (const id of nonVocalIds) {
+    doc.querySelector(`score-part[id="${id}"]`)?.remove()
+    doc.querySelector(`part[id="${id}"]`)?.remove()
+  }
+
+  return new XMLSerializer().serializeToString(doc)
+}
+
+export function computeStaffVoiceMap(
+  musicXml: string,
+  voices: VoiceDefinition[]
+): Record<number, string> {
+  const parser = new DOMParser()
+  const doc = parser.parseFromString(musicXml, 'text/xml')
+
+  const partStaffs = new Map<string, number[]>()
+  let currentStaff = 1
+
+  doc.querySelectorAll('part').forEach((part) => {
+    const id = part.getAttribute('id') ?? ''
+    const stavesEl = part.querySelector('attributes staves')
+    const numStaves = stavesEl ? parseInt(stavesEl.textContent ?? '1', 10) : 1
+
+    const staffNumbers: number[] = []
+    for (let s = 0; s < numStaves; s++) {
+      staffNumbers.push(currentStaff++)
+    }
+    partStaffs.set(id, staffNumbers)
+  })
+
+  const staffVoiceMap: Record<number, string> = {}
+  for (const voice of voices) {
+    for (const partId of voice.partIds) {
+      const staffNums = partStaffs.get(partId)
+      if (staffNums) {
+        for (const sn of staffNums) {
+          staffVoiceMap[sn] = voice.id
+        }
+      }
+    }
+  }
+
+  return staffVoiceMap
+}
+
+export { parseMusicXmlVoices, type VoiceStream }

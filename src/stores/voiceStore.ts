@@ -2,11 +2,13 @@ import { create } from 'zustand'
 import type { VoiceDefinition } from '../types/voice'
 import type { VoiceType } from '../types/voice'
 import { VOICE_COLORS } from '../utils/colorPalette'
-import { identifyVoices } from '../lib/musicxml/voiceIdentifier'
+import { identifyVoices, computeStaffVoiceMap } from '../lib/musicxml/voiceIdentifier'
+import { applyVoiceSettings } from '../lib/audio/synthesizer'
 
 interface VoiceState {
   voices: VoiceDefinition[]
   isIdentified: boolean
+  staffVoiceMap: Record<number, string>
 
   identifyFromMusicXml: (xml: string) => void
   changeVoiceType: (voiceId: string, newType: VoiceType) => void
@@ -14,16 +16,19 @@ interface VoiceState {
   toggleSolo: (voiceId: string) => void
   setVolume: (voiceId: string, volume: number) => void
   setVoiceLabel: (voiceId: string, label: string) => void
+  syncToAudio: () => void
   reset: () => void
 }
 
 export const useVoiceStore = create<VoiceState>((set, get) => ({
   voices: [],
   isIdentified: false,
+  staffVoiceMap: {},
 
   identifyFromMusicXml: (xml: string) => {
     const voices = identifyVoices(xml)
-    set({ voices, isIdentified: true })
+    const staffVoiceMap = computeStaffVoiceMap(xml, voices)
+    set({ voices, isIdentified: true, staffVoiceMap })
   },
 
   changeVoiceType: (voiceId: string, newType: VoiceType) => {
@@ -37,11 +42,11 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
   },
 
   toggleMute: (voiceId: string) => {
-    set({
-      voices: get().voices.map((v) =>
-        v.id === voiceId ? { ...v, muted: !v.muted, solo: false } : v
-      ),
-    })
+    const newVoices = get().voices.map((v) =>
+      v.id === voiceId ? { ...v, muted: !v.muted, solo: false } : v
+    )
+    set({ voices: newVoices })
+    applyVoiceSettings(newVoices)
   },
 
   toggleSolo: (voiceId: string) => {
@@ -49,21 +54,21 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
     if (!voice) return
 
     const newSolo = !voice.solo
-    set({
-      voices: get().voices.map((v) =>
-        v.id === voiceId
-          ? { ...v, solo: newSolo, muted: false }
-          : { ...v, solo: false, muted: newSolo }
-      ),
-    })
+    const newVoices = get().voices.map((v) =>
+      v.id === voiceId
+        ? { ...v, solo: newSolo, muted: false }
+        : { ...v, solo: false, muted: newSolo }
+    )
+    set({ voices: newVoices })
+    applyVoiceSettings(newVoices)
   },
 
   setVolume: (voiceId: string, volume: number) => {
-    set({
-      voices: get().voices.map((v) =>
-        v.id === voiceId ? { ...v, volume: Math.max(0, Math.min(1, volume)) } : v
-      ),
-    })
+    const newVoices = get().voices.map((v) =>
+      v.id === voiceId ? { ...v, volume: Math.max(0, Math.min(1, volume)) } : v
+    )
+    set({ voices: newVoices })
+    applyVoiceSettings(newVoices)
   },
 
   setVoiceLabel: (voiceId: string, label: string) => {
@@ -74,7 +79,11 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
     })
   },
 
+  syncToAudio: () => {
+    applyVoiceSettings(get().voices)
+  },
+
   reset: () => {
-    set({ voices: [], isIdentified: false })
+    set({ voices: [], isIdentified: false, staffVoiceMap: {} })
   },
 }))

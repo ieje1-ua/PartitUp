@@ -1,5 +1,6 @@
 import { WorkerSynthesizer, Sequencer, audioBufferToWav } from 'spessasynth_lib'
 import { loadSoundFont } from './soundfontLoader'
+import type { VoiceDefinition } from '../../types/voice'
 
 let audioContext: AudioContext | null = null
 let synth: WorkerSynthesizer | null = null
@@ -91,6 +92,22 @@ export function getDuration(): number {
 
 export function isPaused(): boolean {
   return sequencer?.paused ?? true
+}
+
+export function applyVoiceSettings(voices: VoiceDefinition[]) {
+  if (!synth) return
+
+  const hasSolo = voices.some((v) => v.solo)
+
+  voices.forEach((voice, index) => {
+    if (index >= synth!.channelCount) return
+    const channel = synth!.midiChannels[index]
+    if (!channel) return
+
+    const shouldMute = hasSolo ? !voice.solo : voice.muted
+    channel.setSystemParameter('isMuted', shouldMute)
+    channel.setSystemParameter('gain', voice.volume)
+  })
 }
 
 export async function renderToWav(

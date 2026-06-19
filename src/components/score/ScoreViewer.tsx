@@ -3,6 +3,7 @@ import { ChevronLeft, ChevronRight, ZoomIn, ZoomOut } from 'lucide-react'
 import { useScoreStore } from '../../stores/scoreStore'
 import { NoteInteraction } from './NoteInteraction'
 import { CorrectionToolbar } from './CorrectionToolbar'
+import { VoiceHighlighter } from './VoiceHighlighter'
 
 export function ScoreViewer() {
   const svgContent = useScoreStore((s) => s.svgContent)
@@ -76,6 +77,7 @@ export function ScoreViewer() {
       </div>
 
       <NoteInteraction containerRef={scoreContainerRef} />
+      <VoiceHighlighter containerRef={scoreContainerRef} />
     </div>
   )
 }

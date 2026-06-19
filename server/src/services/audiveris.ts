@@ -4,6 +4,7 @@ import path from 'path'
 import os from 'os'
 import fs from 'fs/promises'
 import { unzipSync, strFromU8 } from 'fflate'
+import { mergeMusicXmlPages } from './musicxmlMerger.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -138,8 +139,14 @@ export async function processWithAudiveris(inputPath: string, isPdf: boolean): P
     throw new Error('Audiveris no pudo procesar ninguna página del PDF. Puede ser un problema de memoria — intenta con un PDF de menos páginas.')
   }
 
-  // Return the longest result (most musical content)
-  return results.reduce((best, r) => r.length > best.length ? r : best)
+  if (results.length === 1) return results[0]
+
+  try {
+    return mergeMusicXmlPages(results)
+  } catch (mergeErr) {
+    console.error('[audiveris] merge failed, returning longest page:', mergeErr)
+    return results.reduce((best, r) => r.length > best.length ? r : best)
+  }
 }
 
 async function pickLargestFile(baseDir: string, relativePaths: string[]): Promise<string> {
