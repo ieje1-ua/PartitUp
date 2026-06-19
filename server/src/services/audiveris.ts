@@ -32,25 +32,45 @@ export async function processWithAudiveris(inputPath: string): Promise<string> {
     ])
 
     try {
-      await execFileAsync(cmd, args, {
+      const { stdout, stderr } = await execFileAsync(cmd, args, {
         timeout: 300_000,
         maxBuffer: 50 * 1024 * 1024,
       })
+      console.log('[audiveris] stdout tail:', stdout.slice(-2000))
+      if (stderr) console.log('[audiveris] stderr tail:', stderr.slice(-2000))
     } catch (execErr: unknown) {
       const stderr = (execErr as { stderr?: string }).stderr ?? ''
+      const stdout = (execErr as { stdout?: string }).stdout ?? ''
       const killed = (execErr as { killed?: boolean }).killed
+      const code = (execErr as { code?: number }).code
+      // Log full diagnostics to server console (visible in Railway logs)
+      console.error('[audiveris] FAILED code=%s killed=%s', code, killed)
+      console.error('[audiveris] stdout:', stdout.slice(-4000))
+      console.error('[audiveris] stderr:', stderr.slice(-4000))
+
       if (killed) {
-        throw new Error('Audiveris tardó demasiado procesando el archivo. Intenta con un PDF más pequeño.')
+        throw new Error('Audiveris tardó demasiado procesando el archivo (timeout 5 min). El PDF puede ser demasiado grande.')
       }
+
       // Audiveris may still produce output even if exit code is non-zero
       const files = await fs.readdir(outputDir, { recursive: true })
       const hasOutput = files.some(
         (f) => typeof f === 'string' && (f.endsWith('.xml') || f.endsWith('.mxl') || f.endsWith('.musicxml'))
       )
       if (!hasOutput) {
-        const hint = stderr.includes('OutOfMemory') ? ' (sin memoria)' :
-                     stderr.includes('No sheet') ? ' (no se detectaron pentagramas)' : ''
-        throw new Error(`Audiveris no pudo procesar el archivo${hint}. Verifica que sea una partitura musical legible.`)
+        // Surface the most relevant line from Audiveris so we can diagnose
+        const combined = stderr + '\n' + stdout
+        let detail = ''
+        if (/OutOfMemory|heap space/i.test(combined)) {
+          detail = 'sin memoria (OutOfMemoryError)'
+        } else if (/No sheet|no staff|no staves/i.test(combined)) {
+          detail = 'no se detectaron pentagramas'
+        } else {
+          // Grab last non-empty line as a hint
+          const lines = combined.split('\n').map((l) => l.trim()).filter(Boolean)
+          detail = lines.slice(-1)[0]?.slice(0, 200) || `código de salida ${code}`
+        }
+        throw new Error(`Audiveris no pudo procesar el archivo: ${detail}`)
       }
     }
 
