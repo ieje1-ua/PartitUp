@@ -1,13 +1,20 @@
 import { useEffect, useRef } from 'react'
 import { useVoiceStore } from '../../stores/voiceStore'
+import { useCorrectionStore } from '../../stores/correctionStore'
 
 interface VoiceHighlighterProps {
   containerRef: React.RefObject<HTMLDivElement | null>
 }
 
+// Escape a Verovio note id for use in a CSS attribute selector.
+function cssEscapeId(id: string): string {
+  return id.replace(/["\\]/g, '\\$&')
+}
+
 export function VoiceHighlighter({ containerRef }: VoiceHighlighterProps) {
   const voices = useVoiceStore((s) => s.voices)
   const staffVoiceMap = useVoiceStore((s) => s.staffVoiceMap)
+  const noteVoiceOverrides = useCorrectionStore((s) => s.noteVoiceOverrides)
   const prevStylesRef = useRef<HTMLStyleElement | null>(null)
 
   useEffect(() => {
@@ -61,6 +68,25 @@ export function VoiceHighlighter({ containerRef }: VoiceHighlighterProps) {
       }
     })
 
+    // Per-note manual overrides win over staff coloring. Emitted last and keyed
+    // by the note id so the rule is more specific than the staff-level rules.
+    for (const [noteId, voiceId] of Object.entries(noteVoiceOverrides)) {
+      const voice = voiceById.get(voiceId)
+      if (!voice) continue
+
+      const dimmed = hasSolo && !voice.solo
+      const color = dimmed || voice.muted ? '#ccc' : voice.color
+      const opacity = dimmed ? 0.15 : voice.muted ? 0.3 : 1
+      const sel = `.score-container svg [id="${cssEscapeId(noteId)}"]`
+
+      css += `${sel}, ${sel} .note, ${sel} .notehead, ${sel} .stem, ${sel} .beam {
+  fill: ${color} !important;
+  stroke: ${color} !important;
+  opacity: ${opacity};
+}
+`
+    }
+
     styleEl.textContent = css
     document.head.appendChild(styleEl)
     prevStylesRef.current = styleEl
@@ -68,7 +94,7 @@ export function VoiceHighlighter({ containerRef }: VoiceHighlighterProps) {
     return () => {
       styleEl.remove()
     }
-  }, [voices, staffVoiceMap, containerRef])
+  }, [voices, staffVoiceMap, noteVoiceOverrides, containerRef])
 
   return null
 }

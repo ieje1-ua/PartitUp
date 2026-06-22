@@ -10,6 +10,7 @@ export function CorrectionToolbar() {
   const redoStack = useCorrectionStore((s) => s.redoStack)
   const undo = useCorrectionStore((s) => s.undo)
   const redo = useCorrectionStore((s) => s.redo)
+  const reassignSelectedTo = useCorrectionStore((s) => s.reassignSelectedTo)
   const voices = useVoiceStore((s) => s.voices)
 
   const hasSelection = selectedNoteIds.size > 0
@@ -56,6 +57,7 @@ export function CorrectionToolbar() {
               return (
                 <button
                   key={voice.id}
+                  onClick={() => reassignSelectedTo(voice.id)}
                   className="px-2 py-1 text-xs rounded border transition-colors hover:opacity-80"
                   style={{
                     borderColor: voice.color,
