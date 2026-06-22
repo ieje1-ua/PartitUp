@@ -28,11 +28,6 @@ async function processOneFile(inputPath: string): Promise<string | null> {
   try {
     const { cmd, args } = buildCommand([
       '-constant', 'org.audiveris.omr.sheet.BookManager.useCompression=false',
-      // Lower the minimum beam thickness so thin beams from screenshots aren't
-      // rejected (default is often too strict for low-quality input).
-      '-constant', 'org.audiveris.omr.sheet.beam.BeamsBuilder.minBeamWidthLow=1.5',
-      // Be more aggressive recovering stems that touch staff lines.
-      '-constant', 'org.audiveris.omr.sheet.stem.StemsBuilder.maxStemHeadGapY=0.8',
       '-batch',
       '-export',
       '-output', outputDir,

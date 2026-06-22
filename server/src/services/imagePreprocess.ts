@@ -2,33 +2,31 @@ import sharp from 'sharp'
 import path from 'path'
 import os from 'os'
 
-// Audiveris needs an interline (gap between staff lines) of ~16-22px and clean
-// contrast between noteheads and staff lines. Screenshots and low-DPI scans
-// rarely meet that bar, so we aggressively upscale and binarize.
-const TARGET_WIDTH = 3600
-const MAX_WIDTH = 5000
+// Width fed to Audiveris. High enough that staff interlines land in the
+// ~16-22px sweet spot, but capped so the image stays within the memory limits
+// of small hosts — Railway's free tier OOM-kills Audiveris on very large pages.
+//
+// PDF pages are rendered at high DPI and then DOWNSCALED to this width, which
+// supersamples the result for cleaner, rounder noteheads before binarization.
+const TARGET_WIDTH = 2600
 
 export async function preprocessImage(inputPath: string): Promise<string> {
   const outputPath = path.join(os.tmpdir(), `omr-processed-${Date.now()}.png`)
 
-  const meta = await sharp(inputPath).metadata()
-  const sourceWidth = meta.width ?? TARGET_WIDTH
-
-  const resizeWidth =
-    sourceWidth < TARGET_WIDTH ? TARGET_WIDTH : Math.min(sourceWidth, MAX_WIDTH)
-
   await sharp(inputPath)
     .grayscale()
-    .resize({ width: resizeWidth, kernel: 'lanczos3' })
+    // Normalize every input to a fixed width: upscale small screenshots,
+    // downscale high-DPI renders. Keeps Audiveris memory bounded and
+    // supersamples big inputs for cleaner edges.
+    .resize({ width: TARGET_WIDTH })
     .normalize()
-    // Median filter removes speckle noise without blurring edges — important
-    // for keeping staff lines thin and noteheads round after binarization.
+    // Median filter removes speckle without blurring edges — keeps staff lines
+    // thin and noteheads round through binarization.
     .median(3)
     .sharpen({ sigma: 1.5 })
-    // Binarize to pure B&W. Audiveris does its own binarization internally but
-    // starting from a clean threshold image avoids grey-zone ambiguity where
-    // noteheads merge into staff lines or background texture is picked up as
-    // notation.
+    // Binarize to pure B&W so noteheads don't merge into staff lines in the
+    // grey zone. Audiveris re-binarizes internally but a clean threshold image
+    // removes ambiguity.
     .threshold(160)
     .withMetadata({ density: 300 })
     .png()
