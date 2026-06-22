@@ -5,6 +5,7 @@ import os from 'os'
 import fs from 'fs/promises'
 import { unzipSync, strFromU8 } from 'fflate'
 import { mergeMusicXmlPages } from './musicxmlMerger.js'
+import { preprocessImage } from './imagePreprocess.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -121,12 +122,26 @@ export async function processWithAudiveris(inputPath: string, isPdf: boolean): P
   const results: string[] = []
   for (let i = 0; i < pageFiles.length; i++) {
     console.log('[audiveris] processing page %d/%d', i + 1, pageFiles.length)
-    const result = await processOneFile(pageFiles[i])
+
+    // Run the rendered page through the same grayscale/normalize/upscale
+    // pipeline as direct image uploads so embedded low-res screenshots get
+    // enough resolution for reliable notehead detection.
+    let pagePath = pageFiles[i]
+    let preprocessed: string | null = null
+    try {
+      preprocessed = await preprocessImage(pageFiles[i])
+      pagePath = preprocessed
+    } catch (err) {
+      console.error('[audiveris] preprocess failed for page, using raw render:', err)
+    }
+
+    const result = await processOneFile(pagePath)
     if (result) {
       results.push(result)
     }
-    // Clean up page image immediately to free disk space
+    // Clean up page images immediately to free disk space
     await fs.unlink(pageFiles[i]).catch(() => {})
+    if (preprocessed) await fs.unlink(preprocessed).catch(() => {})
   }
 
   // Clean up the pages directory
