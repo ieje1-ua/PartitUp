@@ -94,20 +94,24 @@ export function isPaused(): boolean {
   return sequencer?.paused ?? true
 }
 
-export function applyVoiceSettings(voices: VoiceDefinition[]) {
+export function applyVoiceSettings(
+  voices: VoiceDefinition[],
+  channelMap?: Record<string, number>
+) {
   if (!synth) return
 
   const hasSolo = voices.some((v) => v.solo)
 
-  voices.forEach((voice, index) => {
-    if (index >= synth!.channelCount) return
-    const channel = synth!.midiChannels[index]
-    if (!channel) return
+  for (const voice of voices) {
+    const ch = channelMap?.[voice.id] ?? voices.indexOf(voice)
+    if (ch >= synth.channelCount) continue
+    const midiCh = synth.midiChannels[ch]
+    if (!midiCh) continue
 
     const shouldMute = hasSolo ? !voice.solo : voice.muted
-    channel.setSystemParameter('isMuted', shouldMute)
-    channel.setSystemParameter('gain', voice.volume)
-  })
+    midiCh.setSystemParameter('isMuted', shouldMute)
+    midiCh.setSystemParameter('gain', voice.volume)
+  }
 }
 
 export async function renderToWav(

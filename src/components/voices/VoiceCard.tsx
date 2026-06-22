@@ -44,6 +44,9 @@ export function VoiceCard({ voice }: VoiceCardProps) {
         />
         <span className="text-xs text-gray-500 flex-1 truncate" title={voice.label}>
           {voice.label}
+          {voice.noteCount > 0 && (
+            <span className="ml-1 text-[10px] text-gray-400">({voice.noteCount})</span>
+          )}
         </span>
 
         <button

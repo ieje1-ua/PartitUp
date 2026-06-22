@@ -10,7 +10,7 @@ interface NoteInfo {
   octave: number
 }
 
-interface VoiceStream {
+export interface VoiceStream {
   partId: string
   partName: string
   staff: number
@@ -206,6 +206,7 @@ export function identifyVoices(musicXml: string): VoiceDefinition[] {
       solo: false,
       volume: 0.8,
       partIds: [],
+      noteCount: 0,
     }]
   }
 
@@ -227,8 +228,37 @@ export function identifyVoices(musicXml: string): VoiceDefinition[] {
       solo: false,
       volume: 0.8,
       partIds: [stream.partId],
+      noteCount: stream.notes.length,
     }
   })
+}
+
+export function computeVoiceChannelMap(
+  musicXml: string,
+  voices: VoiceDefinition[]
+): Record<string, number> {
+  const strippedXml = stripNonVocalParts(musicXml)
+  const parser = new DOMParser()
+  const doc = parser.parseFromString(strippedXml, 'text/xml')
+
+  const partOrder: string[] = []
+  doc.querySelectorAll('part').forEach((part) => {
+    partOrder.push(part.getAttribute('id') ?? '')
+  })
+
+  const channelMap: Record<string, number> = {}
+
+  for (const voice of voices) {
+    for (const partId of voice.partIds) {
+      const partIndex = partOrder.indexOf(partId)
+      if (partIndex >= 0) {
+        channelMap[voice.id] = MIDI_CHANNELS[partIndex % MIDI_CHANNELS.length]
+        break
+      }
+    }
+  }
+
+  return channelMap
 }
 
 export function stripNonVocalParts(musicXml: string): string {
@@ -296,4 +326,4 @@ export function computeStaffVoiceMap(
   return staffVoiceMap
 }
 
-export { parseMusicXmlVoices, type VoiceStream }
+export { parseMusicXmlVoices }

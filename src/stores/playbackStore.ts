@@ -60,7 +60,8 @@ export const usePlaybackStore = create<PlaybackState>((set) => ({
         timeout,
       ])
 
-      applyVoiceSettings(useVoiceStore.getState().voices)
+      const voiceState = useVoiceStore.getState()
+      applyVoiceSettings(voiceState.voices, voiceState.channelMap)
 
       set({
         isLoading: false,

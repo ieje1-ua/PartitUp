@@ -2,13 +2,14 @@ import { create } from 'zustand'
 import type { VoiceDefinition } from '../types/voice'
 import type { VoiceType } from '../types/voice'
 import { VOICE_COLORS } from '../utils/colorPalette'
-import { identifyVoices, computeStaffVoiceMap } from '../lib/musicxml/voiceIdentifier'
+import { identifyVoices, computeStaffVoiceMap, computeVoiceChannelMap } from '../lib/musicxml/voiceIdentifier'
 import { applyVoiceSettings } from '../lib/audio/synthesizer'
 
 interface VoiceState {
   voices: VoiceDefinition[]
   isIdentified: boolean
   staffVoiceMap: Record<number, string>
+  channelMap: Record<string, number>
 
   identifyFromMusicXml: (xml: string) => void
   changeVoiceType: (voiceId: string, newType: VoiceType) => void
@@ -24,11 +25,13 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
   voices: [],
   isIdentified: false,
   staffVoiceMap: {},
+  channelMap: {},
 
   identifyFromMusicXml: (xml: string) => {
     const voices = identifyVoices(xml)
     const staffVoiceMap = computeStaffVoiceMap(xml, voices)
-    set({ voices, isIdentified: true, staffVoiceMap })
+    const channelMap = computeVoiceChannelMap(xml, voices)
+    set({ voices, isIdentified: true, staffVoiceMap, channelMap })
   },
 
   changeVoiceType: (voiceId: string, newType: VoiceType) => {
@@ -46,7 +49,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
       v.id === voiceId ? { ...v, muted: !v.muted, solo: false } : v
     )
     set({ voices: newVoices })
-    applyVoiceSettings(newVoices)
+    applyVoiceSettings(newVoices, get().channelMap)
   },
 
   toggleSolo: (voiceId: string) => {
@@ -60,7 +63,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
         : { ...v, solo: false, muted: newSolo }
     )
     set({ voices: newVoices })
-    applyVoiceSettings(newVoices)
+    applyVoiceSettings(newVoices, get().channelMap)
   },
 
   setVolume: (voiceId: string, volume: number) => {
@@ -68,7 +71,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
       v.id === voiceId ? { ...v, volume: Math.max(0, Math.min(1, volume)) } : v
     )
     set({ voices: newVoices })
-    applyVoiceSettings(newVoices)
+    applyVoiceSettings(newVoices, get().channelMap)
   },
 
   setVoiceLabel: (voiceId: string, label: string) => {
@@ -80,10 +83,10 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
   },
 
   syncToAudio: () => {
-    applyVoiceSettings(get().voices)
+    applyVoiceSettings(get().voices, get().channelMap)
   },
 
   reset: () => {
-    set({ voices: [], isIdentified: false, staffVoiceMap: {} })
+    set({ voices: [], isIdentified: false, staffVoiceMap: {}, channelMap: {} })
   },
 }))

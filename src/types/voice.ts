@@ -24,6 +24,7 @@ export interface VoiceDefinition {
   solo: boolean
   volume: number
   partIds: string[]
+  noteCount: number
 }
 
 export interface VoiceAssignment {
