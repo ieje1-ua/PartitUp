@@ -84,7 +84,7 @@ async function extractPdfPages(pdfPath: string): Promise<string[]> {
   await fs.mkdir(outputDir, { recursive: true })
 
   await execFileAsync('pdftoppm', [
-    '-png', '-r', '600',
+    '-png', '-r', '400',
     pdfPath,
     path.join(outputDir, 'page'),
   ], { timeout: 120_000 })
