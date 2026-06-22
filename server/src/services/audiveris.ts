@@ -6,11 +6,33 @@ import fs from 'fs/promises'
 import { unzipSync, strFromU8 } from 'fflate'
 import { mergeMusicXmlPages } from './musicxmlMerger.js'
 import { preprocessImage } from './imagePreprocess.js'
+import { runOemer } from './oemer.js'
 
 const execFileAsync = promisify(execFile)
 
 const AUDIVERIS_CMD = process.env.AUDIVERIS_CMD || 'audiveris'
 const USE_XVFB = process.env.USE_XVFB === '1'
+
+// Which OMR engine to use: 'oemer' (neural, default) or 'audiveris'. Whichever
+// is primary, the other is used as a fallback when the primary yields nothing.
+const OMR_ENGINE = (process.env.OMR_ENGINE || 'oemer').toLowerCase()
+
+// Run a single image through the configured OMR engine, falling back to the
+// other engine if the primary produces no usable result.
+async function runEngine(filePath: string): Promise<string | null> {
+  if (OMR_ENGINE === 'audiveris') {
+    const primary = await processOneFile(filePath)
+    if (primary) return primary
+    console.warn('[omr] Audiveris produced no result, trying oemer')
+    return runOemer(filePath)
+  }
+
+  // Default: neural engine first.
+  const primary = await runOemer(filePath)
+  if (primary) return primary
+  console.warn('[omr] oemer produced no result, falling back to Audiveris')
+  return processOneFile(filePath)
+}
 
 function buildCommand(args: string[]): { cmd: string; args: string[] } {
   if (USE_XVFB) {
@@ -98,11 +120,11 @@ async function extractPdfPages(pdfPath: string): Promise<string[]> {
 
 // Main entry point: accepts a single image or PDF.
 // For PDFs, extracts pages and processes each one separately to avoid OOM.
-export async function processWithAudiveris(inputPath: string, isPdf: boolean): Promise<string> {
+export async function processWithOmr(inputPath: string, isPdf: boolean): Promise<string> {
   if (!isPdf) {
-    const result = await processOneFile(inputPath)
+    const result = await runEngine(inputPath)
     if (result) return result
-    throw new Error('Audiveris no pudo procesar la imagen. Verifica que sea una partitura musical legible.')
+    throw new Error('No se pudo procesar la imagen. Verifica que sea una partitura musical legible.')
   }
 
   // PDF: extract pages, process each one separately to stay within memory limits
@@ -135,7 +157,7 @@ export async function processWithAudiveris(inputPath: string, isPdf: boolean): P
       console.error('[audiveris] preprocess failed for page, using raw render:', err)
     }
 
-    const result = await processOneFile(pagePath)
+    const result = await runEngine(pagePath)
     if (result) {
       results.push(result)
     }
@@ -151,7 +173,7 @@ export async function processWithAudiveris(inputPath: string, isPdf: boolean): P
   }
 
   if (results.length === 0) {
-    throw new Error('Audiveris no pudo procesar ninguna página del PDF. Puede ser un problema de memoria — intenta con un PDF de menos páginas.')
+    throw new Error('No se pudo procesar ninguna página del PDF. Puede ser un problema de memoria — intenta con un PDF de menos páginas.')
   }
 
   if (results.length === 1) return results[0]

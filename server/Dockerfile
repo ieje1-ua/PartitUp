@@ -12,6 +12,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     poppler-utils \
     tesseract-ocr tesseract-ocr-eng tesseract-ocr-spa \
     xvfb \
+    python3 python3-venv python3-pip \
+    libgl1 libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
 # Node.js 22 via repositorio oficial de NodeSource (metodo keyring, fiable).
@@ -60,6 +62,30 @@ RUN curl -fsSL -o "${TESSDATA_PREFIX}/eng.traineddata" \
       https://github.com/tesseract-ocr/tessdata/raw/main/eng.traineddata \
     && curl -fsSL -o "${TESSDATA_PREFIX}/spa.traineddata" \
       https://github.com/tesseract-ocr/tessdata/raw/main/spa.traineddata
+
+# oemer: neural OMR engine (primary). Installed in an isolated venv to avoid
+# Ubuntu 24.04's PEP 668 "externally-managed-environment" restriction.
+#
+# oemer pulls in onnxruntime-gpu, which on a CPU-only host is large and tries to
+# load CUDA libraries it can't find. We swap it for the CPU onnxruntime build
+# (same `import onnxruntime`, smaller, no CUDA) so inference runs cleanly.
+RUN python3 -m venv /opt/oemer-venv \
+    && /opt/oemer-venv/bin/pip install --no-cache-dir --upgrade pip \
+    && /opt/oemer-venv/bin/pip install --no-cache-dir oemer \
+    && /opt/oemer-venv/bin/pip uninstall -y onnxruntime-gpu \
+    && /opt/oemer-venv/bin/pip install --no-cache-dir onnxruntime
+ENV OEMER_CMD=/opt/oemer-venv/bin/oemer
+
+# Pre-download oemer's model checkpoints at build time so the first request
+# isn't blocked on a network fetch (and works even if egress is restricted).
+# Running it once on a blank image triggers the download; recognition failure
+# on the blank image is expected and ignored.
+RUN /opt/oemer-venv/bin/python -c "from PIL import Image; Image.new('RGB',(400,400),'white').save('/tmp/blank.png')" \
+    && (/opt/oemer-venv/bin/oemer /tmp/blank.png -o /tmp || true) \
+    && rm -f /tmp/blank.png /tmp/blank*.musicxml
+
+# Default OMR engine: oemer (neural). Set OMR_ENGINE=audiveris to switch.
+ENV OMR_ENGINE=oemer
 
 WORKDIR /app
 
