@@ -28,6 +28,11 @@ async function processOneFile(inputPath: string): Promise<string | null> {
   try {
     const { cmd, args } = buildCommand([
       '-constant', 'org.audiveris.omr.sheet.BookManager.useCompression=false',
+      // Lower the minimum beam thickness so thin beams from screenshots aren't
+      // rejected (default is often too strict for low-quality input).
+      '-constant', 'org.audiveris.omr.sheet.beam.BeamsBuilder.minBeamWidthLow=1.5',
+      // Be more aggressive recovering stems that touch staff lines.
+      '-constant', 'org.audiveris.omr.sheet.stem.StemsBuilder.maxStemHeadGapY=0.8',
       '-batch',
       '-export',
       '-output', outputDir,
@@ -84,10 +89,10 @@ async function extractPdfPages(pdfPath: string): Promise<string[]> {
   await fs.mkdir(outputDir, { recursive: true })
 
   await execFileAsync('pdftoppm', [
-    '-png', '-r', '300',
+    '-png', '-r', '600',
     pdfPath,
     path.join(outputDir, 'page'),
-  ], { timeout: 60_000 })
+  ], { timeout: 120_000 })
 
   const files = await fs.readdir(outputDir)
   return files
