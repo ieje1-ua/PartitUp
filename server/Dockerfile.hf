@@ -1,21 +1,23 @@
 # Hugging Face Space (Docker SDK) image for the PartitUp OMR backend.
 #
-# This is the LEAN, oemer-only image — no Audiveris/JDK/xvfb/tesseract. HF's
-# free CPU Basic tier gives 16GB RAM, so the neural engine runs comfortably and
-# there's no need for the heavyweight Audiveris fallback here.
+# SELF-CONTAINED: this image clones the public PartitUp repo at build time and
+# builds the server from its `server/` directory. That means the HF Space only
+# needs TWO files — this `Dockerfile` and a `README.md` — pasted via the web UI;
+# no source upload, no git, no token required.
 #
-# To deploy: push the contents of server/ to your HF Space repo, renaming this
-# file to `Dockerfile` and README.hf.md to `README.md`.
+# Lean, oemer-only image (no Audiveris/JDK/xvfb/tesseract). HF's free CPU Basic
+# tier gives 16GB RAM, so the neural engine runs comfortably.
 FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
 # System deps:
+# - git: clone the source repo at build time
 # - poppler-utils: pdftoppm to rasterize PDF pages
 # - python3 + venv: to run oemer
 # - libgl1 / libglib2.0-0: native libs some opencv builds dlopen
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl ca-certificates gnupg \
+    curl ca-certificates gnupg git \
     poppler-utils \
     python3 python3-venv python3-pip \
     libgl1 libglib2.0-0 \
@@ -60,11 +62,15 @@ WORKDIR /app
 RUN chown -R user:user /app
 USER user
 
-COPY --chown=user:user package*.json ./
-RUN npm ci
+# Clone the public repo and build the server from its server/ directory.
+# Bump CACHEBUST (or use the Space's "Factory rebuild") to pull fresh code.
+ARG CACHEBUST=1
+RUN echo "cache:${CACHEBUST}" \
+    && git clone --depth 1 https://github.com/ieje1-ua/PartitUp /tmp/partitup \
+    && cp -r /tmp/partitup/server/. /app/ \
+    && rm -rf /tmp/partitup /app/Dockerfile.hf /app/README.hf.md
 
-COPY --chown=user:user . .
-RUN npm run build
+RUN npm ci && npm run build
 
 # HF routes traffic to app_port (declared in README.md). Listen there.
 ENV PORT=7860
