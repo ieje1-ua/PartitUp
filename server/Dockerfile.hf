@@ -1,12 +1,11 @@
 # Hugging Face Space (Docker SDK) image for the PartitUp OMR backend.
 #
-# SELF-CONTAINED: this image clones the public PartitUp repo at build time and
-# builds the server from its `server/` directory. That means the HF Space only
-# needs TWO files — this `Dockerfile` and a `README.md` — pasted via the web UI;
-# no source upload, no git, no token required.
+# SELF-CONTAINED: clones the public PartitUp repo at build time and builds the
+# server from its `server/` directory. The HF Space only needs TWO pasted files
+# — this `Dockerfile` and a `README.md` — no source upload, git, or token.
 #
-# Lean, oemer-only image (no Audiveris/JDK/xvfb/tesseract). HF's free CPU Basic
-# tier gives 16GB RAM, so the neural engine runs comfortably.
+# Engine: AUDIVERIS (Java). oemer (neural) needs >16GB and OOMs on the free
+# tier, so we use Audiveris, which runs comfortably within 16GB.
 FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -14,13 +13,13 @@ ENV DEBIAN_FRONTEND=noninteractive
 # System deps:
 # - git: clone the source repo at build time
 # - poppler-utils: pdftoppm to rasterize PDF pages
-# - python3 + venv: to run oemer
-# - libgl1 / libglib2.0-0: native libs some opencv builds dlopen
+# - tesseract-ocr + langs: text OCR used by Audiveris
+# - xvfb: virtual framebuffer (Audiveris starts AWT even in batch mode)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl ca-certificates gnupg git \
     poppler-utils \
-    python3 python3-venv python3-pip \
-    libgl1 libglib2.0-0 \
+    tesseract-ocr tesseract-ocr-eng tesseract-ocr-spa \
+    xvfb \
     && rm -rf /var/lib/apt/lists/*
 
 # Node.js 22 (NodeSource keyring method).
@@ -33,41 +32,38 @@ RUN mkdir -p /etc/apt/keyrings \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
 
-# oemer (neural OMR) in an isolated venv. Swap onnxruntime-gpu (its default dep)
-# for the CPU build — smaller and no CUDA load attempts on a CPU-only host.
-RUN python3 -m venv /opt/oemer-venv \
-    && /opt/oemer-venv/bin/pip install --no-cache-dir --upgrade pip \
-    && /opt/oemer-venv/bin/pip install --no-cache-dir oemer \
-    && /opt/oemer-venv/bin/pip uninstall -y onnxruntime-gpu \
-    && /opt/oemer-venv/bin/pip install --no-cache-dir onnxruntime
-ENV OEMER_CMD=/opt/oemer-venv/bin/oemer
+# Audiveris (the .deb bundles its own JRE). Its postinst runs
+# `xdg-desktop-menu install`, which fails in a headless container, so we install
+# tolerantly, drop that postinst script and finish configuring with dpkg.
+ARG AUDIVERIS_VERSION=5.10.2
+RUN apt-get update \
+    && curl -fsSL -o /tmp/audiveris.deb \
+       "https://github.com/Audiveris/audiveris/releases/download/${AUDIVERIS_VERSION}/Audiveris-${AUDIVERIS_VERSION}-ubuntu24.04-x86_64.deb" \
+    && (apt-get install -y --no-install-recommends /tmp/audiveris.deb || true) \
+    && rm -f /var/lib/dpkg/info/audiveris.postinst \
+    && dpkg --configure -a \
+    && test -x /opt/audiveris/bin/Audiveris \
+    && rm /tmp/audiveris.deb \
+    && rm -rf /var/lib/apt/lists/*
 
-# Pre-download oemer's model checkpoints at build time by fetching the files
-# DIRECTLY (no inference). Running oemer to trigger the download loads the model
-# into memory — onnxruntime reserves a large CPU arena — which OOM-kills the
-# memory-limited HF build environment. curl just writes files, so no OOM.
-#
-# Destination layout mirrors oemer's own logic (ete.py): keys starting with
-# "1st" → checkpoints/unet_big, "2nd" → checkpoints/seg_net, filename is the
-# part after the first underscore (model.onnx / weights.h5).
-RUN OEMER_DIR="$(/opt/oemer-venv/bin/python -c 'import oemer, os; print(os.path.dirname(oemer.__file__))')" \
-    && REL="https://github.com/BreezeWhite/oemer/releases/download/checkpoints" \
-    && mkdir -p "$OEMER_DIR/checkpoints/unet_big" "$OEMER_DIR/checkpoints/seg_net" \
-    && curl -fsSL -o "$OEMER_DIR/checkpoints/unet_big/model.onnx"  "$REL/1st_model.onnx" \
-    && curl -fsSL -o "$OEMER_DIR/checkpoints/unet_big/weights.h5" "$REL/1st_weights.h5" \
-    && curl -fsSL -o "$OEMER_DIR/checkpoints/seg_net/model.onnx"   "$REL/2nd_model.onnx" \
-    && curl -fsSL -o "$OEMER_DIR/checkpoints/seg_net/weights.h5"  "$REL/2nd_weights.h5" \
-    # Make the venv (incl. models) readable+writable for the non-root user, so
-    # oemer can re-fetch if anything is ever missing instead of erroring.
-    && chmod -R a+rwX /opt/oemer-venv
+ENV AUDIVERIS_CMD=/opt/audiveris/bin/Audiveris
+ENV TESSDATA_PREFIX=/usr/share/tesseract-ocr/5/tessdata
+ENV USE_XVFB=1
+# Let the JVM use most of the container RAM (default is only 25%).
+ENV JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=75.0"
 
-# oemer is the only engine in this image; no Audiveris fallback here.
-ENV OMR_ENGINE=oemer
-ENV AUDIVERIS_AVAILABLE=0
+# Audiveris uses Tesseract legacy mode; the Ubuntu package ships LSTM-only data.
+# Fetch traineddata with legacy support (improves OCR of voice names/lyrics).
+RUN curl -fsSL -o "${TESSDATA_PREFIX}/eng.traineddata" \
+      https://github.com/tesseract-ocr/tessdata/raw/main/eng.traineddata \
+    && curl -fsSL -o "${TESSDATA_PREFIX}/spa.traineddata" \
+      https://github.com/tesseract-ocr/tessdata/raw/main/spa.traineddata
 
-# Ubuntu 24.04 already ships a UID-1000 user named "ubuntu". HF Spaces require
-# running as UID 1000, so reuse that user instead of creating one (useradd
-# -u 1000 fails with "UID 1000 is not unique").
+# Audiveris is the engine in this image.
+ENV OMR_ENGINE=audiveris
+
+# Ubuntu 24.04 ships a UID-1000 user named "ubuntu"; HF Spaces require running
+# as UID 1000, so reuse it (useradd -u 1000 would fail as "not unique").
 ENV HOME=/home/ubuntu
 WORKDIR /app
 RUN mkdir -p /home/ubuntu && chown -R ubuntu:ubuntu /home/ubuntu /app
@@ -81,8 +77,7 @@ RUN echo "cache:${CACHEBUST}" \
     && cp -r /tmp/partitup/server/. /app/ \
     && rm -rf /tmp/partitup /app/Dockerfile.hf /app/README.hf.md
 
-# --include=dev forces devDependencies (typescript, etc.) even if the build
-# environment sets NODE_ENV=production, so `npm run build` (tsc) is available.
+# --include=dev forces devDependencies (typescript) even if NODE_ENV=production.
 RUN npm ci --include=dev && npm run build
 
 # HF routes traffic to app_port (declared in README.md). Listen there.

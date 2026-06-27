@@ -12,7 +12,7 @@ pinned: false
 
 Optical Music Recognition API for [PartitUp](https://github.com/ieje1-ua/partitup).
 Accepts an image or PDF of a choral score and returns MusicXML, using the
-[oemer](https://github.com/BreezeWhite/oemer) neural OMR engine.
+[Audiveris](https://github.com/Audiveris/audiveris) OMR engine.
 
 Endpoints:
 - `POST /api/omr` — multipart form field `file` (PNG/JPG/PDF) → `{ status, musicXml }`
