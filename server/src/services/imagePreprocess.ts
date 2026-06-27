@@ -2,16 +2,17 @@ import sharp from 'sharp'
 import path from 'path'
 import os from 'os'
 
-// Audiveris ships its own adaptive (Sauvola) binarization tuned for music
-// scores, so the job here is NOT to binarize — doing so destroys information
-// (e.g. the thin rings of hollow half/whole noteheads) that its filter relies
-// on. We only hand it a clean grayscale image at a sensible size.
+// Both engines (oemer and Audiveris) do their own binarization, so the job
+// here is NOT to binarize — doing so destroys information (e.g. the thin rings
+// of hollow half/whole noteheads). We only hand a clean grayscale image at a
+// sensible size.
 //
-// Width is capped for memory safety on small hosts (Railway free tier
-// OOM-kills Audiveris on very large pages) and floored so tiny screenshots get
-// enough resolution for the staff interline Audiveris needs.
-const MAX_WIDTH = 2800
-const MIN_WIDTH = 2200
+// On the 16GB HF Space there's plenty of memory, so we feed a higher
+// resolution than the old Railway-constrained values — more pixels means
+// better neural recognition. Both bounds are env-tunable so they can be
+// adjusted per host without a code change.
+const MAX_WIDTH = parseInt(process.env.OMR_MAX_WIDTH ?? '3600', 10)
+const MIN_WIDTH = parseInt(process.env.OMR_MIN_WIDTH ?? '2600', 10)
 
 export async function preprocessImage(inputPath: string): Promise<string> {
   const outputPath = path.join(os.tmpdir(), `omr-processed-${Date.now()}.png`)

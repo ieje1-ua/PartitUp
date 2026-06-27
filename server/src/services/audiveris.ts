@@ -17,8 +17,24 @@ const USE_XVFB = process.env.USE_XVFB === '1'
 // is primary, the other is used as a fallback when the primary yields nothing.
 const OMR_ENGINE = (process.env.OMR_ENGINE || 'oemer').toLowerCase()
 
+// Whether Audiveris is installed. On the lean HF image it isn't, so the
+// fallback must be skipped to return clean errors instead of spawn failures.
+// Honors AUDIVERIS_AVAILABLE (0/1); otherwise probes an absolute AUDIVERIS_CMD.
+let audiverisAvailable: boolean | null = null
+async function isAudiverisAvailable(): Promise<boolean> {
+  if (audiverisAvailable !== null) return audiverisAvailable
+  if (process.env.AUDIVERIS_AVAILABLE === '0') return (audiverisAvailable = false)
+  if (process.env.AUDIVERIS_AVAILABLE === '1') return (audiverisAvailable = true)
+  if (AUDIVERIS_CMD.startsWith('/')) {
+    audiverisAvailable = await fs.access(AUDIVERIS_CMD).then(() => true).catch(() => false)
+    return audiverisAvailable
+  }
+  // Bare command name with no explicit flag: assume present on PATH.
+  return (audiverisAvailable = true)
+}
+
 // Run a single image through the configured OMR engine, falling back to the
-// other engine if the primary produces no usable result.
+// other engine if the primary produces no usable result (and it's installed).
 async function runEngine(filePath: string): Promise<string | null> {
   if (OMR_ENGINE === 'audiveris') {
     const primary = await processOneFile(filePath)
@@ -30,8 +46,13 @@ async function runEngine(filePath: string): Promise<string | null> {
   // Default: neural engine first.
   const primary = await runOemer(filePath)
   if (primary) return primary
-  console.warn('[omr] oemer produced no result, falling back to Audiveris')
-  return processOneFile(filePath)
+
+  if (await isAudiverisAvailable()) {
+    console.warn('[omr] oemer produced no result, falling back to Audiveris')
+    return processOneFile(filePath)
+  }
+  console.warn('[omr] oemer produced no result and Audiveris is not installed')
+  return null
 }
 
 function buildCommand(args: string[]): { cmd: string; args: string[] } {
@@ -105,11 +126,12 @@ async function extractPdfPages(pdfPath: string): Promise<string[]> {
   const outputDir = path.join(os.tmpdir(), `pdf-pages-${Date.now()}`)
   await fs.mkdir(outputDir, { recursive: true })
 
+  const dpi = process.env.PDF_DPI ?? '500'
   await execFileAsync('pdftoppm', [
-    '-png', '-r', '400',
+    '-png', '-r', dpi,
     pdfPath,
     path.join(outputDir, 'page'),
-  ], { timeout: 120_000 })
+  ], { timeout: 180_000 })
 
   const files = await fs.readdir(outputDir)
   return files

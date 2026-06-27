@@ -7,6 +7,7 @@ import { PlaybackControls } from './components/audio/PlaybackControls'
 import { useScoreStore } from './stores/scoreStore'
 import { useVoiceStore } from './stores/voiceStore'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
+import { prewarmOmrBackend } from './lib/omr/omrClient'
 
 export default function App() {
   const svgContent = useScoreStore((s) => s.svgContent)
@@ -15,6 +16,11 @@ export default function App() {
   const resetVoices = useVoiceStore((s) => s.reset)
 
   useKeyboardShortcuts()
+
+  // Wake the OMR backend (HF Space sleeps when idle) so it's warm by upload time.
+  useEffect(() => {
+    prewarmOmrBackend()
+  }, [])
 
   useEffect(() => {
     if (musicXml) {

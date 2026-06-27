@@ -1,0 +1,73 @@
+# Hugging Face Space (Docker SDK) image for the PartitUp OMR backend.
+#
+# This is the LEAN, oemer-only image — no Audiveris/JDK/xvfb/tesseract. HF's
+# free CPU Basic tier gives 16GB RAM, so the neural engine runs comfortably and
+# there's no need for the heavyweight Audiveris fallback here.
+#
+# To deploy: push the contents of server/ to your HF Space repo, renaming this
+# file to `Dockerfile` and README.hf.md to `README.md`.
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# System deps:
+# - poppler-utils: pdftoppm to rasterize PDF pages
+# - python3 + venv: to run oemer
+# - libgl1 / libglib2.0-0: native libs some opencv builds dlopen
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl ca-certificates gnupg \
+    poppler-utils \
+    python3 python3-venv python3-pip \
+    libgl1 libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Node.js 22 (NodeSource keyring method).
+RUN mkdir -p /etc/apt/keyrings \
+    && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
+       | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \
+    && echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_22.x nodistro main" \
+       > /etc/apt/sources.list.d/nodesource.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+# oemer (neural OMR) in an isolated venv. Swap onnxruntime-gpu (its default dep)
+# for the CPU build — smaller and no CUDA load attempts on a CPU-only host.
+RUN python3 -m venv /opt/oemer-venv \
+    && /opt/oemer-venv/bin/pip install --no-cache-dir --upgrade pip \
+    && /opt/oemer-venv/bin/pip install --no-cache-dir oemer \
+    && /opt/oemer-venv/bin/pip uninstall -y onnxruntime-gpu \
+    && /opt/oemer-venv/bin/pip install --no-cache-dir onnxruntime
+ENV OEMER_CMD=/opt/oemer-venv/bin/oemer
+
+# Pre-download oemer's model checkpoints at build time (first run on a blank
+# image triggers the download; recognition failure on the blank is expected).
+RUN /opt/oemer-venv/bin/python -c "from PIL import Image; Image.new('RGB',(400,400),'white').save('/tmp/blank.png')" \
+    && (/opt/oemer-venv/bin/oemer /tmp/blank.png -o /tmp || true) \
+    && rm -f /tmp/blank.png /tmp/blank*.musicxml \
+    # Make the venv (incl. downloaded models) world-readable for the non-root user.
+    && chmod -R a+rX /opt/oemer-venv
+
+# oemer is the only engine in this image; no Audiveris fallback here.
+ENV OMR_ENGINE=oemer
+ENV AUDIVERIS_AVAILABLE=0
+
+# HF Spaces run the container as UID 1000. Create that user and own the app dir.
+RUN useradd -m -u 1000 user
+ENV HOME=/home/user
+
+WORKDIR /app
+RUN chown -R user:user /app
+USER user
+
+COPY --chown=user:user package*.json ./
+RUN npm ci
+
+COPY --chown=user:user . .
+RUN npm run build
+
+# HF routes traffic to app_port (declared in README.md). Listen there.
+ENV PORT=7860
+EXPOSE 7860
+
+CMD ["node", "dist/index.js"]
