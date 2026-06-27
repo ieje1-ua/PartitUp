@@ -21,9 +21,11 @@ export async function runOemer(imagePath: string): Promise<string | null> {
 
   try {
     try {
-      await execFileAsync(OEMER_CMD, [imagePath, '-o', outputDir], {
+      // -d / --without-deskew skips the (slow) deskewing pass. Inputs here are
+      // screenshots / clean digital scans with no skew, so it's a safe speed-up.
+      await execFileAsync(OEMER_CMD, [imagePath, '-o', outputDir, '-d'], {
         // Neural inference on CPU is slow; give it generous head-room.
-        timeout: 300_000,
+        timeout: 540_000,
         maxBuffer: 50 * 1024 * 1024,
       })
     } catch (execErr: unknown) {

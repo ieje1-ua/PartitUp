@@ -1,8 +1,9 @@
 const OMR_API_URL = import.meta.env.VITE_OMR_API_URL || '/api'
 
 // The OMR backend (Hugging Face Space) sleeps after inactivity; the first
-// request wakes it and neural recognition is slow, so allow a long timeout.
-const OMR_TIMEOUT_MS = 180_000
+// request wakes it (model load) and neural recognition on CPU is slow, so
+// allow a long timeout — a cold first run can take several minutes.
+const OMR_TIMEOUT_MS = 600_000
 
 export interface OmrResult {
   musicXml: string
