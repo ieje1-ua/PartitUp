@@ -42,13 +42,24 @@ RUN python3 -m venv /opt/oemer-venv \
     && /opt/oemer-venv/bin/pip install --no-cache-dir onnxruntime
 ENV OEMER_CMD=/opt/oemer-venv/bin/oemer
 
-# Pre-download oemer's model checkpoints at build time (first run on a blank
-# image triggers the download; recognition failure on the blank is expected).
-RUN /opt/oemer-venv/bin/python -c "from PIL import Image; Image.new('RGB',(400,400),'white').save('/tmp/blank.png')" \
-    && (/opt/oemer-venv/bin/oemer /tmp/blank.png -o /tmp || true) \
-    && rm -f /tmp/blank.png /tmp/blank*.musicxml \
-    # Make the venv (incl. downloaded models) world-readable for the non-root user.
-    && chmod -R a+rX /opt/oemer-venv
+# Pre-download oemer's model checkpoints at build time by fetching the files
+# DIRECTLY (no inference). Running oemer to trigger the download loads the model
+# into memory — onnxruntime reserves a large CPU arena — which OOM-kills the
+# memory-limited HF build environment. curl just writes files, so no OOM.
+#
+# Destination layout mirrors oemer's own logic (ete.py): keys starting with
+# "1st" → checkpoints/unet_big, "2nd" → checkpoints/seg_net, filename is the
+# part after the first underscore (model.onnx / weights.h5).
+RUN OEMER_DIR="$(/opt/oemer-venv/bin/python -c 'import oemer, os; print(os.path.dirname(oemer.__file__))')" \
+    && REL="https://github.com/BreezeWhite/oemer/releases/download/checkpoints" \
+    && mkdir -p "$OEMER_DIR/checkpoints/unet_big" "$OEMER_DIR/checkpoints/seg_net" \
+    && curl -fsSL -o "$OEMER_DIR/checkpoints/unet_big/model.onnx"  "$REL/1st_model.onnx" \
+    && curl -fsSL -o "$OEMER_DIR/checkpoints/unet_big/weights.h5" "$REL/1st_weights.h5" \
+    && curl -fsSL -o "$OEMER_DIR/checkpoints/seg_net/model.onnx"   "$REL/2nd_model.onnx" \
+    && curl -fsSL -o "$OEMER_DIR/checkpoints/seg_net/weights.h5"  "$REL/2nd_weights.h5" \
+    # Make the venv (incl. models) readable+writable for the non-root user, so
+    # oemer can re-fetch if anything is ever missing instead of erroring.
+    && chmod -R a+rwX /opt/oemer-venv
 
 # oemer is the only engine in this image; no Audiveris fallback here.
 ENV OMR_ENGINE=oemer
