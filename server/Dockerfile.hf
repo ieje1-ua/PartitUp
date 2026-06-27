@@ -81,7 +81,9 @@ RUN echo "cache:${CACHEBUST}" \
     && cp -r /tmp/partitup/server/. /app/ \
     && rm -rf /tmp/partitup /app/Dockerfile.hf /app/README.hf.md
 
-RUN npm ci && npm run build
+# --include=dev forces devDependencies (typescript, etc.) even if the build
+# environment sets NODE_ENV=production, so `npm run build` (tsc) is available.
+RUN npm ci --include=dev && npm run build
 
 # HF routes traffic to app_port (declared in README.md). Listen there.
 ENV PORT=7860
