@@ -65,13 +65,13 @@ RUN OEMER_DIR="$(/opt/oemer-venv/bin/python -c 'import oemer, os; print(os.path.
 ENV OMR_ENGINE=oemer
 ENV AUDIVERIS_AVAILABLE=0
 
-# HF Spaces run the container as UID 1000. Create that user and own the app dir.
-RUN useradd -m -u 1000 user
-ENV HOME=/home/user
-
+# Ubuntu 24.04 already ships a UID-1000 user named "ubuntu". HF Spaces require
+# running as UID 1000, so reuse that user instead of creating one (useradd
+# -u 1000 fails with "UID 1000 is not unique").
+ENV HOME=/home/ubuntu
 WORKDIR /app
-RUN chown -R user:user /app
-USER user
+RUN mkdir -p /home/ubuntu && chown -R ubuntu:ubuntu /home/ubuntu /app
+USER ubuntu
 
 # Clone the public repo and build the server from its server/ directory.
 # Bump CACHEBUST (or use the Space's "Factory rebuild") to pull fresh code.
