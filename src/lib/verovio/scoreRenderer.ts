@@ -50,3 +50,26 @@ export async function getPageCount(): Promise<number> {
 export function getToolkit(): VerovioToolkit | null {
   return currentToolkit
 }
+
+// Return the MEI the toolkit currently holds. Verovio assigns each note an
+// xml:id that equals the SVG element id, so this MEI is the editable model
+// behind the rendered score.
+export function getMei(): string {
+  if (!currentToolkit) throw new Error('No score loaded')
+  return (currentToolkit as unknown as { getMEI: (o: object) => string }).getMEI({})
+}
+
+// Load an (edited) MEI string back into the toolkit and re-render the SVG and
+// the MIDI so both the score and the audio reflect the edit.
+export function renderFromMei(
+  mei: string,
+  page = 1
+): { svg: string; midi: string; pageCount: number } {
+  if (!currentToolkit) throw new Error('No score loaded')
+  currentToolkit.loadData(mei)
+  const pageCount = currentToolkit.getPageCount()
+  const safePage = Math.min(Math.max(page, 1), pageCount || 1)
+  const svg = currentToolkit.renderToSVG(safePage)
+  const midi = currentToolkit.renderToMIDI()
+  return { svg, midi, pageCount }
+}

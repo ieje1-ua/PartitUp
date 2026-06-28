@@ -26,6 +26,7 @@ interface PlaybackState {
   exportProgress: number
 
   initAndLoad: (midiBase64: string) => Promise<void>
+  reloadMidi: (midiBase64: string) => Promise<void>
   play: () => Promise<void>
   pause: () => void
   stop: () => void
@@ -73,6 +74,20 @@ export const usePlaybackStore = create<PlaybackState>((set) => ({
         isLoading: false,
         error: err instanceof Error ? err.message : 'Error inicializando audio',
       })
+    }
+  },
+
+  reloadMidi: async (midiBase64: string) => {
+    // Swap in freshly edited MIDI without the full loading UI, keeping the
+    // current voice mute/solo/volume settings.
+    try {
+      audioStop()
+      await loadMidiData(midiBase64)
+      const voiceState = useVoiceStore.getState()
+      applyVoiceSettings(voiceState.voices, voiceState.channelMap)
+      set({ isPlaying: false, currentTime: 0, duration: getDuration() })
+    } catch (err) {
+      set({ error: err instanceof Error ? err.message : 'Error recargando audio' })
     }
   },
 

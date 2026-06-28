@@ -1,7 +1,10 @@
 import { create } from 'zustand'
-import { loadScore, renderPage } from '../lib/verovio/scoreRenderer'
+import { loadScore, renderPage, getMei, renderFromMei } from '../lib/verovio/scoreRenderer'
 import { detectFileType, type FileInputType } from '../types/score'
 import { processImageOMR } from '../lib/omr/omrClient'
+import { transposeNotesDiatonic, deleteNotesToRests } from '../lib/musicxml/meiNoteEditor'
+import { useCorrectionStore } from './correctionStore'
+import { usePlaybackStore } from './playbackStore'
 
 interface ScoreState {
   musicXml: string | null
@@ -13,12 +16,24 @@ interface ScoreState {
   error: string | null
   fileName: string | null
 
+  // Manual note correction (Fase D): editable MEI model + undo history.
+  editedMei: string | null
+  editUndo: string[]
+
   loadFile: (file: File) => Promise<void>
   loadMusicXml: (xml: string, name?: string) => Promise<void>
   goToPage: (page: number) => Promise<void>
   nextPage: () => Promise<void>
   prevPage: () => Promise<void>
+  nudgeSelectedNotes: (deltaSteps: number) => Promise<void>
+  deleteSelectedNotes: () => Promise<void>
+  undoEdit: () => Promise<void>
   reset: () => void
+}
+
+function extractFifths(musicXml: string | null): number {
+  const m = musicXml?.match(/<fifths>\s*(-?\d+)\s*<\/fifths>/)
+  return m ? parseInt(m[1], 10) : 0
 }
 
 async function readFileAsText(file: File): Promise<string> {
@@ -39,6 +54,8 @@ export const useScoreStore = create<ScoreState>((set, get) => ({
   isLoading: false,
   error: null,
   fileName: null,
+  editedMei: null,
+  editUndo: [],
 
   loadFile: async (file: File) => {
     set({ isLoading: true, error: null, fileName: file.name })
@@ -109,6 +126,31 @@ export const useScoreStore = create<ScoreState>((set, get) => ({
     }
   },
 
+  nudgeSelectedNotes: async (deltaSteps: number) => {
+    await applyEdit(get, set, (mei, ids) =>
+      transposeNotesDiatonic(mei, ids, deltaSteps, extractFifths(get().musicXml))
+    )
+  },
+
+  deleteSelectedNotes: async () => {
+    await applyEdit(get, set, (mei, ids) => deleteNotesToRests(mei, ids))
+  },
+
+  undoEdit: async () => {
+    const { editUndo, currentPage } = get()
+    if (editUndo.length === 0) return
+    const prev = editUndo[editUndo.length - 1]
+    const { svg, midi, pageCount } = renderFromMei(prev, currentPage)
+    set({
+      editedMei: prev,
+      editUndo: editUndo.slice(0, -1),
+      svgContent: svg,
+      midiBase64: midi,
+      pageCount,
+    })
+    await usePlaybackStore.getState().reloadMidi(midi)
+  },
+
   reset: () => {
     set({
       musicXml: null,
@@ -119,6 +161,37 @@ export const useScoreStore = create<ScoreState>((set, get) => ({
       isLoading: false,
       error: null,
       fileName: null,
+      editedMei: null,
+      editUndo: [],
     })
   },
 }))
+
+// Apply an MEI edit to the currently selected notes, re-render score + audio,
+// and record the previous MEI for undo. No-op when nothing is selected.
+async function applyEdit(
+  get: () => ScoreState,
+  set: (partial: Partial<ScoreState>) => void,
+  edit: (mei: string, ids: string[]) => string
+): Promise<void> {
+  const ids = Array.from(useCorrectionStore.getState().selectedNoteIds)
+  if (ids.length === 0) return
+
+  try {
+    const baseMei = get().editedMei ?? getMei()
+    const newMei = edit(baseMei, ids)
+    if (newMei === baseMei) return
+
+    const { svg, midi, pageCount } = renderFromMei(newMei, get().currentPage)
+    set({
+      editedMei: newMei,
+      editUndo: [...get().editUndo, baseMei],
+      svgContent: svg,
+      midiBase64: midi,
+      pageCount,
+    })
+    await usePlaybackStore.getState().reloadMidi(midi)
+  } catch (err) {
+    set({ error: err instanceof Error ? err.message : 'Error editando la nota' })
+  }
+}
