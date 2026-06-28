@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { loadScore, renderPage, getMei, renderFromMei } from '../lib/verovio/scoreRenderer'
 import { detectFileType, type FileInputType } from '../types/score'
 import { processImageOMR } from '../lib/omr/omrClient'
-import { transposeNotesDiatonic, deleteNotesToRests } from '../lib/musicxml/meiNoteEditor'
+import { transposeNotesDiatonic, deleteNotesToRests, restsToNotes } from '../lib/musicxml/meiNoteEditor'
 import { useCorrectionStore } from './correctionStore'
 import { usePlaybackStore } from './playbackStore'
 
@@ -27,6 +27,7 @@ interface ScoreState {
   prevPage: () => Promise<void>
   nudgeSelectedNotes: (deltaSteps: number) => Promise<void>
   deleteSelectedNotes: () => Promise<void>
+  addNotesFromSelectedRests: () => Promise<void>
   undoEdit: () => Promise<void>
   reset: () => void
 }
@@ -134,6 +135,12 @@ export const useScoreStore = create<ScoreState>((set, get) => ({
 
   deleteSelectedNotes: async () => {
     await applyEdit(get, set, (mei, ids) => deleteNotesToRests(mei, ids))
+  },
+
+  addNotesFromSelectedRests: async () => {
+    await applyEdit(get, set, (mei, ids) =>
+      restsToNotes(mei, ids, extractFifths(get().musicXml))
+    )
   },
 
   undoEdit: async () => {

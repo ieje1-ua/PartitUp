@@ -40,6 +40,9 @@ export function useKeyboardShortcuts() {
       } else if (e.key === 'Delete' || e.key === 'Backspace') {
         e.preventDefault()
         score.deleteSelectedNotes()
+      } else if (e.key === 'n' || e.key === 'N') {
+        e.preventDefault()
+        score.addNotesFromSelectedRests()
       }
     }
 

@@ -1,4 +1,4 @@
-import { Undo2, Redo2, MousePointer2, X, ArrowUp, ArrowDown, Trash2 } from 'lucide-react'
+import { Undo2, Redo2, MousePointer2, X, ArrowUp, ArrowDown, Trash2, Plus } from 'lucide-react'
 import { useCorrectionStore } from '../../stores/correctionStore'
 import { useVoiceStore } from '../../stores/voiceStore'
 import { useScoreStore } from '../../stores/scoreStore'
@@ -15,6 +15,7 @@ export function CorrectionToolbar() {
   const voices = useVoiceStore((s) => s.voices)
   const nudgeSelectedNotes = useScoreStore((s) => s.nudgeSelectedNotes)
   const deleteSelectedNotes = useScoreStore((s) => s.deleteSelectedNotes)
+  const addNotesFromSelectedRests = useScoreStore((s) => s.addNotesFromSelectedRests)
   const undoEdit = useScoreStore((s) => s.undoEdit)
   const editUndo = useScoreStore((s) => s.editUndo)
 
@@ -75,6 +76,13 @@ export function CorrectionToolbar() {
               title="Borrar nota (Supr)"
             >
               <Trash2 className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => addNotesFromSelectedRests()}
+              className="p-1.5 rounded border border-gray-200 text-gray-500 hover:bg-green-50 hover:text-green-600 transition-colors"
+              title="Añadir nota: convierte un silencio seleccionado en nota (tecla N)"
+            >
+              <Plus className="w-4 h-4" />
             </button>
             <button
               onClick={() => undoEdit()}

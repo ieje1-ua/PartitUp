@@ -14,7 +14,7 @@ export function NoteInteraction({ containerRef }: NoteInteractionProps) {
   const handleNoteClick = useCallback(
     (e: MouseEvent) => {
       const target = e.target as SVGElement
-      const noteEl = target.closest('[id^="note-"], [id*="note"]') as SVGElement | null
+      const noteEl = target.closest('[id^="note-"], [id^="rest-"], [id*="note"]') as SVGElement | null
       if (!noteEl?.id) return
 
       e.preventDefault()
@@ -27,7 +27,7 @@ export function NoteInteraction({ containerRef }: NoteInteractionProps) {
   const handleMouseDown = useCallback(
     (e: MouseEvent) => {
       const target = e.target as Element
-      if (target.closest('[id^="note-"], [id*="note"]')) return
+      if (target.closest('[id^="note-"], [id^="rest-"], [id*="note"]')) return
 
       const container = containerRef.current
       if (!container) return
@@ -72,7 +72,7 @@ export function NoteInteraction({ containerRef }: NoteInteractionProps) {
     const container = containerRef.current
     if (container) {
       const lassoRect = lasso.el.getBoundingClientRect()
-      const notes = container.querySelectorAll('[id^="note-"], [id*="note"]')
+      const notes = container.querySelectorAll('[id^="note-"], [id^="rest-"], [id*="note"]')
       const selectedIds: string[] = []
 
       notes.forEach((note) => {
@@ -105,7 +105,7 @@ export function NoteInteraction({ containerRef }: NoteInteractionProps) {
     const svg = container.querySelector('svg')
     if (!svg) return
 
-    const notes = svg.querySelectorAll('[id^="note-"], [id*="note"]')
+    const notes = svg.querySelectorAll('[id^="note-"], [id^="rest-"], [id*="note"]')
     notes.forEach((note) => {
       ;(note as SVGElement).style.cursor = 'pointer'
     })

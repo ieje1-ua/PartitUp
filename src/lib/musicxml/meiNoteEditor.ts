@@ -91,3 +91,57 @@ export function deleteNotesToRests(mei: string, noteIds: Iterable<string>): stri
 
   return new XMLSerializer().serializeToString(doc)
 }
+
+// Pitch of the nearest preceding note in the same layer, used as a sensible
+// starting pitch when a rest becomes a note.
+function previousNotePitch(el: Element): { pname: string; oct: number } | null {
+  let sib = el.previousElementSibling
+  while (sib) {
+    if (sib.localName === 'note' && sib.getAttribute('pname')) {
+      return { pname: sib.getAttribute('pname')!, oct: parseInt(sib.getAttribute('oct') ?? '4', 10) }
+    }
+    const inner = Array.from(sib.getElementsByTagNameNS('*', 'note'))
+    if (inner.length > 0) {
+      const n = inner[inner.length - 1]
+      return { pname: n.getAttribute('pname') ?? 'b', oct: parseInt(n.getAttribute('oct') ?? '4', 10) }
+    }
+    sib = sib.previousElementSibling
+  }
+  return null
+}
+
+// Turn the given rests into notes of the same duration (for notes the OMR
+// missed). The new note starts at the previous note's pitch (or b4) so it lands
+// near the right range; the user then nudges it to the exact pitch.
+export function restsToNotes(
+  mei: string,
+  restIds: Iterable<string>,
+  fifths: number
+): string {
+  const doc = new DOMParser().parseFromString(mei, 'application/xml')
+  const ids = new Set(restIds)
+
+  const rests = Array.from(doc.getElementsByTagNameNS('*', 'rest'))
+  for (const rest of rests) {
+    const id = elementId(rest)
+    if (!id || !ids.has(id)) continue
+
+    const note = doc.createElementNS(rest.namespaceURI, 'note')
+    const dur = rest.getAttribute('dur')
+    const dots = rest.getAttribute('dots')
+    if (dur) note.setAttribute('dur', dur)
+    if (dots) note.setAttribute('dots', dots)
+
+    const prev = previousNotePitch(rest)
+    const pname = prev?.pname ?? 'b'
+    const oct = prev?.oct ?? 4
+    note.setAttribute('pname', pname)
+    note.setAttribute('oct', String(oct))
+    const acc = accidGesForKey(pname, fifths)
+    if (acc) note.setAttribute('accid.ges', acc)
+
+    rest.replaceWith(note)
+  }
+
+  return new XMLSerializer().serializeToString(doc)
+}
