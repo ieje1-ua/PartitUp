@@ -89,15 +89,52 @@ function parseMusicXmlVoices(xmlString: string): VoiceStream[] {
     })
   })
 
-  for (const stream of streamsMap.values()) {
-    if (stream.notes.length > 0) {
-      stream.avgPitch = stream.notes.reduce((s, n) => s + n.pitch, 0) / stream.notes.length
-    }
+  const nonEmpty = Array.from(streamsMap.values()).filter((s) => s.notes.length > 0)
+  const merged = mergeMinorVoices(nonEmpty)
+
+  for (const stream of merged) {
+    stream.avgPitch = stream.notes.reduce((s, n) => s + n.pitch, 0) / stream.notes.length
   }
 
-  return Array.from(streamsMap.values())
-    .filter((s) => s.notes.length > 0)
-    .sort((a, b) => b.avgPitch - a.avgPitch)
+  return merged.sort((a, b) => b.avgPitch - a.avgPitch)
+}
+
+// OMR often misreads a few notes of a monophonic vocal line as a separate
+// "voice" (e.g. soprano with voice 1 = 157 notes and voice 2 = 3 notes). Those
+// tiny substreams would otherwise be counted as extra voices and throw off the
+// S/A/T/B assignment. Within each (part, staff) we merge any substream that is
+// far smaller than the dominant one into it, keeping genuine multi-voice staves
+// (where each voice has a substantial share of the notes).
+function mergeMinorVoices(streams: VoiceStream[]): VoiceStream[] {
+  const groups = new Map<string, VoiceStream[]>()
+  for (const s of streams) {
+    const key = `${s.partId}__${s.staff}`
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key)!.push(s)
+  }
+
+  const result: VoiceStream[] = []
+  for (const group of groups.values()) {
+    if (group.length === 1) {
+      result.push(group[0])
+      continue
+    }
+    group.sort((a, b) => b.notes.length - a.notes.length)
+    const dominant = group[0]
+    const threshold = Math.max(6, 0.15 * dominant.notes.length)
+    result.push(dominant)
+    for (let i = 1; i < group.length; i++) {
+      const s = group[i]
+      if (s.notes.length >= threshold) {
+        result.push(s)
+      } else {
+        dominant.notes.push(...s.notes)
+        dominant.minPitch = Math.min(dominant.minPitch, s.minPitch)
+        dominant.maxPitch = Math.max(dominant.maxPitch, s.maxPitch)
+      }
+    }
+  }
+  return result
 }
 
 const VOICE_TYPE_ORDER: VoiceType[] = [
