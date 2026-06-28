@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import multer from 'multer'
 import { processWithOmr } from '../services/audiveris.js'
+import { cleanupMusicXml } from '../services/musicxmlCleanup.js'
 import { preprocessImage } from '../services/imagePreprocess.js'
 import path from 'path'
 import fs from 'fs/promises'
@@ -45,7 +46,8 @@ omrRouter.post('/omr', upload.single('file'), async (req, res) => {
       inputPath = processedPath
     }
 
-    const musicXml = await processWithOmr(inputPath, isPdf)
+    const rawXml = await processWithOmr(inputPath, isPdf)
+    const musicXml = cleanupMusicXml(rawXml)
 
     res.json({ status: 'success', musicXml })
   } catch (err) {
